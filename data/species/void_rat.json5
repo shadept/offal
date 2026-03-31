@@ -6,4 +6,7 @@
   fovRange: 4,
   color: "#aa6633",
   spawnTags: ["organic", "vermin"],
+  faction: "creatures",
+  maxHp: 12,
+  attackDamage: 4,
 }

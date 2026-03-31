@@ -6,7 +6,8 @@ import {
   addEntity,
   addComponent,
 } from 'bitecs';
-import { Position, Renderable, Turn, FOV, PlayerTag } from './components';
+import { Position, Renderable, Turn, FOV, PlayerTag, Health, Faction, CombatStats } from './components';
+import { getFactionIndex } from './factions';
 
 export type GameWorld = ReturnType<typeof createGameWorld>;
 
@@ -30,6 +31,9 @@ export interface SpawnPlayerOpts {
   y: number;
   speed?: number;
   viewRange?: number;
+  maxHp?: number;
+  attackDamage?: number;
+  faction?: string;
 }
 
 /** Spawn the player entity */
@@ -40,6 +44,9 @@ export function spawnPlayer(world: object, opts: SpawnPlayerOpts): number {
   addComponent(world, eid, Turn);
   addComponent(world, eid, FOV);
   addComponent(world, eid, PlayerTag);
+  addComponent(world, eid, Health);
+  addComponent(world, eid, Faction);
+  addComponent(world, eid, CombatStats);
 
   Position.x[eid] = opts.x;
   Position.y[eid] = opts.y;
@@ -49,6 +56,12 @@ export function spawnPlayer(world: object, opts: SpawnPlayerOpts): number {
   Turn.speed[eid] = opts.speed ?? 100;
   Turn.actionCost[eid] = 0;
   FOV.range[eid] = opts.viewRange ?? 8;
+
+  const hp = opts.maxHp ?? 25;
+  Health.hp[eid] = hp;
+  Health.maxHp[eid] = hp;
+  Faction.factionIndex[eid] = getFactionIndex(opts.faction ?? 'player');
+  CombatStats.attackDamage[eid] = opts.attackDamage ?? 5;
 
   return eid;
 }

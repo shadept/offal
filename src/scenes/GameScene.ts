@@ -10,11 +10,16 @@
  * - Camera follow
  * - Ambient visual layer
  * - Sandbox mode (Phase 2)
+ * - AI combat, death visual events (Phase 3)
  */
 import { Scene } from 'phaser';
 import { createGameWorld, spawnPlayer } from '../ecs/world';
-import { addEntity, addComponent } from 'bitecs';
-import { Position, Renderable, FOV, Turn, AI, BlocksMovement } from '../ecs/components';
+import { addEntity, addComponent, removeEntity, hasComponent } from 'bitecs';
+import {
+  Position, Renderable, FOV, Turn, AI, BlocksMovement,
+  Health, Faction, CombatStats, Dead,
+} from '../ecs/components';
+import { initFactions, getFactionIndex } from '../ecs/factions';
 import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove } from '../ecs/systems/movementSystem';
 import { VisualEventQueue } from '../visual/EventQueue';
@@ -44,6 +49,12 @@ const MOVE_DURATION = 120;
 
 /** Door open animation duration in ms */
 const DOOR_DURATION = 150;
+
+/** Hit flash duration in ms */
+const HIT_FLASH_DURATION = 200;
+
+/** Death animation duration in ms */
+const DEATH_DURATION = 300;
 
 export class GameScene extends Scene {
   // ── ECS ──
@@ -87,11 +98,17 @@ export class GameScene extends Scene {
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
   private autoPlayTimer = 0;
 
+  // ── Sandbox animation state ──
+  private sandboxDraining = false;
+
   constructor() {
     super({ key: 'GameScene' });
   }
 
   create(): void {
+    // ── Init faction index mapping ──
+    initFactions();
+
     // ── ECS setup ──
     this.world = createGameWorld();
     this.turnSystem = new TurnSystem();
@@ -106,11 +123,16 @@ export class GameScene extends Scene {
     this.entityContainer = this.add.container(0, 0);
 
     // ── Spawn player at map-defined position ──
+    const registry = getRegistry();
+    const playerSpecies = registry.species.get('salvager');
     this.playerEid = spawnPlayer(this.world, {
       x: mapResult.playerSpawn.x,
       y: mapResult.playerSpawn.y,
-      speed: 100,
-      viewRange: 8,
+      speed: playerSpecies?.speed ?? 100,
+      viewRange: playerSpecies?.fovRange ?? 8,
+      maxHp: playerSpecies?.maxHp ?? 25,
+      attackDamage: playerSpecies?.attackDamage ?? 5,
+      faction: playerSpecies?.faction ?? 'player',
     });
     Turn.energy[this.playerEid] = 100;
 
@@ -162,7 +184,7 @@ export class GameScene extends Scene {
 
     // ── Sandbox ──
     this.sandbox = new SandboxController();
-    this.sandbox.bind(this.tileMap, this.world, this.turnSystem);
+    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue);
     this.sandboxPanel = new SandboxPanel(this.sandbox);
 
     // Selection highlight (yellow outline, hidden by default)
@@ -206,18 +228,21 @@ export class GameScene extends Scene {
 
     // ── Sandbox mode ──
     if (this.sandbox.active) {
+      // Don't advance while draining visual events
+      if (this.sandboxDraining) return;
+
       // Manual turn advance
       if (Phaser.Input.Keyboard.JustDown(this.advanceKey)) {
-        this.sandbox.advanceTurn();
+        this.runSandboxTurn();
       }
 
       // Auto-play
       if (this.sandbox.autoPlay) {
         this.autoPlayTimer += delta;
         const interval = 1000 / this.sandbox.autoPlaySpeed;
-        while (this.autoPlayTimer >= interval) {
+        if (this.autoPlayTimer >= interval) {
           this.autoPlayTimer -= interval;
-          this.sandbox.advanceTurn();
+          this.runSandboxTurn();
         }
       }
     } else {
@@ -236,15 +261,11 @@ export class GameScene extends Scene {
           break;
 
         case TurnPhase.ENEMY_TURN:
-          // All AI entities that can act will idle (consume energy).
-          // Phase 4 adds seek/flee/patrol behaviours and visual events.
-          processAITurns(this.world);
-          this.turnSystem.phase = TurnPhase.ENEMY_ANIMATION;
+          this.processEnemyTurn();
           break;
 
         case TurnPhase.ENEMY_ANIMATION:
-          // No enemy events — complete immediately
-          this.turnSystem.onEnemyAnimationComplete(this.world);
+          // Enemy animation draining — handled by callbacks
           break;
       }
     }
@@ -423,6 +444,23 @@ export class GameScene extends Scene {
     this.turnSystem.onPlayerAnimationComplete(this.world);
   }
 
+  /** Process enemy turn with AI behaviours and combat. */
+  private processEnemyTurn(): void {
+    processAITurns(this.world, this.tileMap, this.eventQueue);
+    this.turnSystem.phase = TurnPhase.ENEMY_ANIMATION;
+
+    // Drain visual queue (AI move/attack events)
+    if (this.eventQueue.length > 0) {
+      this.eventQueue.drain(() => {
+        this.updateFOV();
+        this.renderTiles();
+        this.turnSystem.onEnemyAnimationComplete(this.world);
+      });
+    } else {
+      this.turnSystem.onEnemyAnimationComplete(this.world);
+    }
+  }
+
   // ════════════════════════════════════════════════════════════
   // VISUAL EVENT HANDLERS
   // ════════════════════════════════════════════════════════════
@@ -483,6 +521,64 @@ export class GameScene extends Scene {
     this.eventQueue.registerHandler('door_close', (event: VisualEvent, onComplete: () => void) => {
       onComplete();
     });
+
+    // ── Hit flash event ──
+    this.eventQueue.registerHandler('hit_flash', (event: VisualEvent, onComplete: () => void) => {
+      const sprite = this.entitySprites.get(event.entityId);
+      if (!sprite || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+
+      // Flash red then restore
+      sprite.setTint(0xff2222);
+      this.tweens.add({
+        targets: sprite,
+        alpha: 0.6,
+        duration: HIT_FLASH_DURATION / 2,
+        yoyo: true,
+        onComplete: () => {
+          sprite.setTint(0xffffff);
+          sprite.setAlpha(1);
+          onComplete();
+        },
+      });
+    });
+
+    // ── Death event ──
+    this.eventQueue.registerHandler('death', (event: VisualEvent, onComplete: () => void) => {
+      const eid = event.entityId;
+      const sprite = this.entitySprites.get(eid);
+
+      // Mark dead in ECS immediately
+      addComponent(this.world, eid, Dead);
+
+      if (!sprite || this.eventQueue.skipMode) {
+        this.removeDeadEntity(eid);
+        onComplete();
+        return;
+      }
+
+      // Scale-down + fade death animation
+      this.tweens.add({
+        targets: sprite,
+        scaleX: 0,
+        scaleY: 0,
+        alpha: 0,
+        duration: DEATH_DURATION,
+        ease: 'Quad.easeIn',
+        onComplete: () => {
+          this.removeDeadEntity(eid);
+          onComplete();
+        },
+      });
+    });
+  }
+
+  /** Remove a dead entity from world and visual layer. */
+  private removeDeadEntity(eid: number): void {
+    this.destroyEntitySprite(eid);
+    removeEntity(this.world, eid);
   }
 
   // ════════════════════════════════════════════════════════════
@@ -611,6 +707,30 @@ export class GameScene extends Scene {
   // SANDBOX
   // ════════════════════════════════════════════════════════════
 
+  /** Run one sandbox turn: tick energy, run AI, drain visual queue. */
+  private runSandboxTurn(): void {
+    if (this.sandboxDraining) return;
+
+    // Tick energy for all entities
+    this.turnSystem.forceTick(this.world);
+
+    // Run AI with movement, combat
+    processAITurns(this.world, this.tileMap, this.eventQueue);
+
+    // Drain visual queue
+    if (this.eventQueue.length > 0) {
+      this.sandboxDraining = true;
+      this.eventQueue.drain(() => {
+        this.sandboxDraining = false;
+        this.updateFOV();
+        this.renderTiles();
+        this.sandboxPanel.updateInspector();
+      });
+    } else {
+      this.sandboxPanel.updateInspector();
+    }
+  }
+
   private handleSandboxClick(pointer: Phaser.Input.Pointer): void {
     const tileX = Math.floor(pointer.worldX / TILE_SIZE);
     const tileY = Math.floor(pointer.worldY / TILE_SIZE);
@@ -662,6 +782,7 @@ export class GameScene extends Scene {
       // Exiting sandbox — clean up
       this.selectionHighlight.setVisible(false);
       this.autoPlayTimer = 0;
+      this.sandboxDraining = false;
       // Restore FOV
       this.updateFOV();
       this.renderTiles();
@@ -721,6 +842,10 @@ export class GameScene extends Scene {
       addComponent(this.world, eid, Turn);
       addComponent(this.world, eid, BlocksMovement);
       addComponent(this.world, eid, AI);
+      addComponent(this.world, eid, FOV);
+      addComponent(this.world, eid, Health);
+      addComponent(this.world, eid, Faction);
+      addComponent(this.world, eid, CombatStats);
 
       Position.x[eid] = spawn.x;
       Position.y[eid] = spawn.y;
@@ -728,6 +853,12 @@ export class GameScene extends Scene {
       Turn.energy[eid] = 0;
       Turn.speed[eid] = species.speed;
       FOV.range[eid] = species.fovRange;
+
+      const hp = species.maxHp ?? 10;
+      Health.hp[eid] = hp;
+      Health.maxHp[eid] = hp;
+      Faction.factionIndex[eid] = getFactionIndex(species.faction ?? 'creatures');
+      CombatStats.attackDamage[eid] = species.attackDamage ?? 1;
 
       this.createEntitySprite(eid, species.id);
     }

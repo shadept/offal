@@ -32,12 +32,36 @@ export const FOV = soa({
 });
 
 // ── AI ────────────────────────────────────────────────────────
-// behaviour: 0 = idle (default), future: 1 = seek, 2 = flee, 3 = patrol
+// behaviour: 0 = idle, 1 = wander, 2 = seek
 export const AI = soa({
   behaviour: new Uint8Array(MAX_ENTITIES),
+});
+
+export const AIBehaviour = {
+  IDLE: 0,
+  WANDER: 1,
+  SEEK: 2,
+} as const;
+
+// ── Health ────────────────────────────────────────────────────
+export const Health = soa({
+  hp: new Int32Array(MAX_ENTITIES),
+  maxHp: new Int32Array(MAX_ENTITIES),
+});
+
+// ── Faction ───────────────────────────────────────────────────
+// factionIndex: index into a runtime string→number mapping
+export const Faction = soa({
+  factionIndex: new Uint8Array(MAX_ENTITIES),
+});
+
+// ── Combat stats ──────────────────────────────────────────────
+export const CombatStats = soa({
+  attackDamage: new Int32Array(MAX_ENTITIES),
 });
 
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};
 export const ActedThisTurn = {}; // marks entities that have acted in current tick
+export const Dead = {}; // marks entities pending removal

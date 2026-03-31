@@ -1,0 +1,25 @@
+{
+  factions: [
+    {
+      id: "security",
+      name: "Security",
+      hostileTo: ["pirates", "creatures"],
+    },
+    {
+      id: "pirates",
+      name: "Pirates",
+      hostileTo: ["security"],
+    },
+    {
+      id: "creatures",
+      name: "Creatures",
+      // Hostile to everyone — resolved at runtime as hostile to all other factions
+      hostileTo: ["*"],
+    },
+    {
+      id: "player",
+      name: "Player",
+      hostileTo: ["creatures", "pirates"],
+    },
+  ],
+}

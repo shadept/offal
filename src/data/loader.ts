@@ -3,7 +3,7 @@
  * All game content is data-driven; no hardcoded content in game logic.
  */
 import JSON5 from 'json5';
-import type { MaterialData, TileData, SpeciesData, MapData, DataRegistry } from '../types';
+import type { MaterialData, TileData, SpeciesData, MapData, FactionData, DataRegistry } from '../types';
 
 // Vite glob imports — `?raw` imports file contents as strings
 const materialFiles = import.meta.glob('/data/materials/*.json5', {
@@ -25,6 +25,12 @@ const mapFiles = import.meta.glob('/data/maps/*.json5', {
 });
 
 const speciesFiles = import.meta.glob('/data/species/*.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const factionFiles = import.meta.glob('/data/factions.json5', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -95,6 +101,22 @@ function parseMaps(): Map<string, MapData> {
   return map;
 }
 
+function parseFactions(): Map<string, FactionData> {
+  const map = new Map<string, FactionData>();
+  for (const [path, raw] of Object.entries(factionFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string);
+      const list: FactionData[] = parsed.factions ?? [parsed];
+      for (const f of list) {
+        if (f.id) map.set(f.id, f);
+      }
+    } catch (e) {
+      console.error(`Failed to parse faction file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
 let registry: DataRegistry | null = null;
 
 /** Load all JSON5 data files and return the registry. Cached after first call. */
@@ -109,12 +131,14 @@ export function loadData(): DataRegistry {
     tilesByIndex,
     species: parseSpecies(),
     maps: parseMaps(),
+    factions: parseFactions(),
   };
 
   console.log(
     `[data] Loaded ${registry.materials.size} materials, ` +
     `${registry.tiles.size} tiles, ` +
     `${registry.species.size} species, ` +
+    `${registry.factions.size} factions, ` +
     `${registry.maps.size} maps`
   );
   return registry;

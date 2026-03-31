@@ -6,4 +6,7 @@
   fovRange: 3,
   color: "#8844aa",
   spawnTags: ["organic", "parasite"],
+  faction: "creatures",
+  maxHp: 20,
+  attackDamage: 3,
 }

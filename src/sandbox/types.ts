@@ -28,4 +28,8 @@ export interface EntityInspectData {
   isPlayer: boolean;
   hasAI: boolean;
   aiBehaviour: number;
+  hp: number;
+  maxHp: number;
+  faction: string;
+  attackDamage: number;
 }

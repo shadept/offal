@@ -5,13 +5,15 @@
  * mutations flow through this controller, keeping the logic/visual
  * separation intact.
  */
-import { query, addEntity, addComponent, removeEntity } from 'bitecs';
-import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, AI } from '../ecs/components';
+import { query, addEntity, addComponent, removeEntity, hasComponent } from 'bitecs';
+import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, AI, Health, Faction, CombatStats, Dead } from '../ecs/components';
+import { getFactionIndex, getFactionId } from '../ecs/factions';
 import { TileMap } from '../map/TileMap';
 import { Visibility } from '../types';
 import { getRegistry } from '../data/loader';
 import type { SpeciesData } from '../types';
 import type { TurnSystem } from '../ecs/systems/turnSystem';
+import type { VisualEventQueue } from '../visual/EventQueue';
 import type { SandboxTool, TileInspectData, EntityInspectData } from './types';
 
 const VIS_NAMES: Record<number, string> = {
@@ -45,15 +47,17 @@ export class SandboxController {
   private tileMap!: TileMap;
   private world!: object;
   private turnSystem!: TurnSystem;
+  private eventQueue!: VisualEventQueue;
 
   // ── Event emitter ──
   private listeners: Listener[] = [];
 
   /** Bind game references. Called once from GameScene.create(). */
-  bind(tileMap: TileMap, world: object, turnSystem: TurnSystem): void {
+  bind(tileMap: TileMap, world: object, turnSystem: TurnSystem, eventQueue: VisualEventQueue): void {
     this.tileMap = tileMap;
     this.world = world;
     this.turnSystem = turnSystem;
+    this.eventQueue = eventQueue;
 
     // Default to first non-playerStart species
     const registry = getRegistry();
@@ -116,6 +120,7 @@ export class SandboxController {
   findEntityAt(x: number, y: number): number | null {
     const entities = query(this.world, [Position]);
     for (const eid of entities) {
+      if (hasComponent(this.world, eid, Dead)) continue;
       if (Position.x[eid] === x && Position.y[eid] === y) return eid;
     }
     return null;
@@ -128,7 +133,9 @@ export class SandboxController {
     const players = query(this.world, [PlayerTag]);
     const aiEntities = query(this.world, [AI]);
     const hasAI = aiEntities.includes(eid);
-    const speciesId = Renderable.spriteIndex[eid]; // we store species index here
+    const speciesId = Renderable.spriteIndex[eid];
+    const factionIdx = hasComponent(this.world, eid, Faction) ? Faction.factionIndex[eid] : 255;
+    const factionName = getFactionId(factionIdx) ?? 'none';
     return {
       eid,
       position: { x: Position.x[eid], y: Position.y[eid] },
@@ -140,6 +147,10 @@ export class SandboxController {
       isPlayer: players.includes(eid),
       hasAI,
       aiBehaviour: hasAI ? AI.behaviour[eid] : 0,
+      hp: hasComponent(this.world, eid, Health) ? Health.hp[eid] : 0,
+      maxHp: hasComponent(this.world, eid, Health) ? Health.maxHp[eid] : 0,
+      faction: factionName,
+      attackDamage: hasComponent(this.world, eid, CombatStats) ? CombatStats.attackDamage[eid] : 0,
     };
   }
 
@@ -181,15 +192,25 @@ export class SandboxController {
     addComponent(this.world, eid, Turn);
     addComponent(this.world, eid, BlocksMovement);
     addComponent(this.world, eid, AI);
+    addComponent(this.world, eid, FOV);
+    addComponent(this.world, eid, Health);
+    addComponent(this.world, eid, Faction);
+    addComponent(this.world, eid, CombatStats);
 
     Position.x[eid] = x;
     Position.y[eid] = y;
-    Renderable.spriteIndex[eid] = 0; // not used for texture anymore
+    Renderable.spriteIndex[eid] = 0;
     Renderable.layer[eid] = 2;
     Turn.energy[eid] = 0;
     Turn.speed[eid] = species.speed;
     Turn.actionCost[eid] = 0;
     FOV.range[eid] = species.fovRange;
+
+    const hp = species.maxHp ?? 10;
+    Health.hp[eid] = hp;
+    Health.maxHp[eid] = hp;
+    Faction.factionIndex[eid] = getFactionIndex(species.faction ?? 'creatures');
+    CombatStats.attackDamage[eid] = species.attackDamage ?? 1;
 
     this.emit('entity_spawned', { eid, x, y, speciesId: species.id });
     return eid;
@@ -220,6 +241,12 @@ export class SandboxController {
     this.turnSystem.forceTick(this.world);
     this.emit('turn_advanced');
   }
+
+  /** Get map ref (for AI system calls from GameScene). */
+  getMap(): TileMap { return this.tileMap; }
+
+  /** Get event queue ref. */
+  getEventQueue(): VisualEventQueue { return this.eventQueue; }
 
   setTool(tool: SandboxTool): void {
     this.activeTool = tool;

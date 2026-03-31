@@ -6,4 +6,7 @@
   fovRange: 10,
   color: "#33aa88",
   spawnTags: ["mechanical"],
+  faction: "security",
+  maxHp: 8,
+  attackDamage: 2,
 }

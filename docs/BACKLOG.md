@@ -55,32 +55,32 @@
 
 ---
 
-## Phase 3 — Entities Fight Each Other
+## Phase 3 — Entities Fight Each Other ✅ COMPLETE
 *Goal: spawn enemies, press auto-play, watch them fight to the death.*
 
 This phase adds everything needed to see combat: HP, movement AI, attack, death. Physics is NOT in this phase — that's Phase 4.
 
 ### Movement AI
-- [ ] 🔴 `wander` behaviour: move to random adjacent walkable tile each turn
-- [ ] 🔴 `seek` behaviour: pathfind toward nearest hostile entity (BFS or A*)
-- [ ] 🔴 Detection range: entity only seeks if target within FOV range
-- [ ] 🔴 Faction data: load `data/factions.json5`, assign faction to species
-- [ ] 🔴 Faction relation check: determines hostile/neutral/friendly
+- [x] ✅ `wander` behaviour: move to random adjacent walkable tile each turn
+- [x] ✅ `seek` behaviour: pathfind toward nearest hostile entity (BFS or A*)
+- [x] ✅ Detection range: entity only seeks if target within FOV range
+- [x] ✅ Faction data: load `data/factions.json5`, assign faction to species
+- [x] ✅ Faction relation check: determines hostile/neutral/friendly
 
 ### Combat
-- [ ] 🔴 HP component (flat value, pre-modular)
-- [ ] 🔴 Attack action: deal damage to adjacent hostile entity (damage from species data)
-- [ ] 🔴 Damage system: reduce HP, check for death
-- [ ] 🔴 Death: entity removed, visual death event
-- [ ] 🟡 `hit_flash` visual event: entity flashes red on damage
-- [ ] 🟡 `death` visual event: death animation before removal
-- [ ] 🟡 HP bar visible on inspect (already scaffolded)
+- [x] ✅ HP component (flat value, pre-modular)
+- [x] ✅ Attack action: deal damage to adjacent hostile entity (damage from species data)
+- [x] ✅ Damage system: reduce HP, check for death
+- [x] ✅ Death: entity removed, visual death event
+- [x] ✅ `hit_flash` visual event: entity flashes red on damage
+- [x] ✅ `death` visual event: death animation before removal
+- [x] ✅ HP bar visible on inspect (already scaffolded)
 
 ### Sandbox Completion (unblocked by this phase)
-- [ ] 🟡 AI-only mode: disable player control, pure AI vs AI observation
-- [ ] 🟡 Entity inspector shows HP and faction
+- [x] ✅ AI-only mode: disable player control, pure AI vs AI observation
+- [x] ✅ Entity inspector shows HP and faction
 
-**Exit criteria**: spawn a security_bot and a void_rat, enable auto-play, watch them fight. One dies.
+**Exit criteria**: spawn a security_bot and a void_rat, enable auto-play, watch them fight. One dies. ✅
 
 ---
 

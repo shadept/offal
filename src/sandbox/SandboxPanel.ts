@@ -393,16 +393,17 @@ export class SandboxPanel {
     revealRow.appendChild(revealLabel);
     section.appendChild(revealRow);
 
-    // AI Only (disabled)
+    // AI Only
     const aiRow = this.el('div', 'sb-sim-row');
     const aiLabel = this.el('label', 'sb-checkbox-label');
     const aiCb = document.createElement('input');
     aiCb.type = 'checkbox';
-    aiCb.disabled = true;
-    const aiText = document.createTextNode('AI Only ');
-    const aiPhase = this.el('span', 'sb-phase-label');
-    aiPhase.textContent = '(Phase 4)';
-    aiLabel.append(aiCb, aiText, aiPhase);
+    aiCb.checked = this.ctrl.aiOnly;
+    aiCb.addEventListener('change', () => {
+      this.ctrl.aiOnly = aiCb.checked;
+    });
+    const aiText = document.createTextNode('AI Only');
+    aiLabel.append(aiCb, aiText);
     aiRow.appendChild(aiLabel);
     section.appendChild(aiRow);
 
@@ -558,12 +559,13 @@ export class SandboxPanel {
     entLabel.style.marginTop = '8px';
     this.entityInspectEl.appendChild(entLabel);
 
-    const AI_BEHAVIOURS: Record<number, string> = { 0: 'Idle' };
+    const AI_BEHAVIOURS: Record<number, string> = { 0: 'Idle', 1: 'Wander', 2: 'Seek' };
     const lines: [string, string][] = [
       ['EID', String(info.eid)],
       ['Position', `(${info.position.x}, ${info.position.y})`],
-      ['Sprite', String(info.spriteIndex)],
-      ['Layer', String(info.layer)],
+      ['HP', `${info.hp} / ${info.maxHp}`],
+      ['Faction', info.faction],
+      ['Attack', String(info.attackDamage)],
       ['Energy', info.energy.toFixed(0)],
       ['Speed', info.speed.toFixed(0)],
       ['FOV Range', String(info.fovRange)],

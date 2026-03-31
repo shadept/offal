@@ -23,7 +23,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'idle' | 'door_open' | 'door_close';
+export type VisualEventType = 'move' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {
@@ -92,6 +92,16 @@ export interface SpeciesData {
   color: string;
   spawnTags: string[];
   playerStart?: boolean;
+  faction?: string;
+  maxHp?: number;
+  attackDamage?: number;
+}
+
+/** Faction definition loaded from data/factions.json5 */
+export interface FactionData {
+  id: string;
+  name: string;
+  hostileTo: string[]; // faction IDs, or ["*"] for hostile to all
 }
 
 /** Map definition loaded from data/maps/*.json5 */
@@ -112,4 +122,5 @@ export interface DataRegistry {
   tilesByIndex: Map<number, TileData>;
   species: Map<string, SpeciesData>;
   maps: Map<string, MapData>;
+  factions: Map<string, FactionData>;
 }
