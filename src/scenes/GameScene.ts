@@ -265,7 +265,16 @@ export class GameScene extends Scene {
           break;
 
         case TurnPhase.ENEMY_ANIMATION:
-          // Enemy animation draining — handled by callbacks
+          // Player keypress interrupts enemy animations
+          if (this.hasPlayerInput()) {
+            this.tweens.killAll();
+            this.eventQueue.flushAll();
+            this.syncAllEntitySprites();
+            this.updateFOV();
+            this.renderTiles();
+            this.turnSystem.phase = TurnPhase.PLAYER_INPUT;
+            this.handlePlayerInput();
+          }
           break;
       }
     }
@@ -402,6 +411,22 @@ export class GameScene extends Scene {
     }
   }
 
+  /** Returns true if any movement or wait key is currently held. */
+  private hasPlayerInput(): boolean {
+    return this.cursors.left.isDown || this.wasd.A.isDown ||
+      this.cursors.right.isDown || this.wasd.D.isDown ||
+      this.cursors.up.isDown || this.wasd.W.isDown ||
+      this.cursors.down.isDown || this.wasd.S.isDown ||
+      this.waitKey.isDown;
+  }
+
+  /** Snap every entity sprite to its committed ECS position. */
+  private syncAllEntitySprites(): void {
+    for (const [eid] of this.entitySprites) {
+      this.syncEntitySprite(eid);
+    }
+  }
+
   // ════════════════════════════════════════════════════════════
   // ACTION PROCESSING
   // ════════════════════════════════════════════════════════════
@@ -466,7 +491,7 @@ export class GameScene extends Scene {
   // ════════════════════════════════════════════════════════════
 
   private registerEventHandlers(): void {
-    // ── Move event ──
+    // ── Move event (FOV-aware) ──
     this.eventQueue.registerHandler('move', (event: VisualEvent, onComplete: () => void) => {
       const { fromX, fromY, toX, toY } = event.data as {
         fromX: number; fromY: number; toX: number; toY: number;
@@ -477,12 +502,43 @@ export class GameScene extends Scene {
         return;
       }
 
-      if (this.eventQueue.skipMode) {
+      const isPlayer = event.entityId === this.playerEid;
+      const fromVis = isPlayer || this.tileMap.getVisibility(fromX, fromY) === Visibility.VISIBLE;
+      const toVis = isPlayer || this.tileMap.getVisibility(toX, toY) === Visibility.VISIBLE;
+
+      // Both tiles outside FOV — snap instantly, keep hidden
+      if (this.eventQueue.skipMode || (!fromVis && !toVis)) {
         sprite.setPosition(toX * TILE_SIZE, toY * TILE_SIZE);
+        if (!isPlayer) sprite.setVisible(toVis);
         onComplete();
         return;
       }
 
+      // Entering FOV — snap to destination, show
+      if (!fromVis && toVis) {
+        sprite.setPosition(toX * TILE_SIZE, toY * TILE_SIZE);
+        sprite.setVisible(true);
+        onComplete();
+        return;
+      }
+
+      // Leaving FOV — tween out then hide
+      if (fromVis && !toVis) {
+        this.tweens.add({
+          targets: sprite,
+          x: toX * TILE_SIZE,
+          y: toY * TILE_SIZE,
+          duration: MOVE_DURATION,
+          ease: 'Quad.easeInOut',
+          onComplete: () => {
+            sprite.setVisible(false);
+            onComplete();
+          },
+        });
+        return;
+      }
+
+      // Both visible — normal tween
       this.tweens.add({
         targets: sprite,
         x: toX * TILE_SIZE,
@@ -522,10 +578,13 @@ export class GameScene extends Scene {
       onComplete();
     });
 
-    // ── Hit flash event ──
+    // ── Hit flash event (FOV-aware) ──
     this.eventQueue.registerHandler('hit_flash', (event: VisualEvent, onComplete: () => void) => {
       const sprite = this.entitySprites.get(event.entityId);
-      if (!sprite || this.eventQueue.skipMode) {
+      const ex = Position.x[event.entityId];
+      const ey = Position.y[event.entityId];
+      const visible = this.tileMap.getVisibility(ex, ey) === Visibility.VISIBLE;
+      if (!sprite || this.eventQueue.skipMode || !visible) {
         onComplete();
         return;
       }
@@ -545,15 +604,18 @@ export class GameScene extends Scene {
       });
     });
 
-    // ── Death event ──
+    // ── Death event (FOV-aware) ──
     this.eventQueue.registerHandler('death', (event: VisualEvent, onComplete: () => void) => {
       const eid = event.entityId;
       const sprite = this.entitySprites.get(eid);
+      const ex = Position.x[eid];
+      const ey = Position.y[eid];
+      const visible = this.tileMap.getVisibility(ex, ey) === Visibility.VISIBLE;
 
       // Mark dead in ECS immediately
       addComponent(this.world, eid, Dead);
 
-      if (!sprite || this.eventQueue.skipMode) {
+      if (!sprite || this.eventQueue.skipMode || !visible) {
         this.removeDeadEntity(eid);
         onComplete();
         return;

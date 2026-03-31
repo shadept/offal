@@ -22,6 +22,8 @@ export class VisualEventQueue {
   private onDrainComplete: (() => void) | null = null;
   /** Callbacks to run when an event's animation completes (state commits) */
   private commitCallbacks = new Map<VisualEvent, () => void>();
+  /** The event currently being animated (already shifted off queue) */
+  private currentEvent: VisualEvent | null = null;
 
   /** Register a handler for a visual event type */
   registerHandler(type: string, handler: EventCallback): void {
@@ -92,6 +94,35 @@ export class VisualEventQueue {
   clear(): void {
     this.queue.length = 0;
     this.commitCallbacks.clear();
+    this.currentEvent = null;
+    this.draining = false;
+    this.onDrainComplete = null;
+  }
+
+  /**
+   * Flush all events instantly — commit the in-flight event and all queued
+   * events, but do NOT invoke the onDrainComplete callback.  The caller is
+   * responsible for any post-drain work (FOV update, phase transition, etc.).
+   */
+  flushAll(): void {
+    // Commit the event whose animation is currently running
+    if (this.currentEvent) {
+      const commit = this.commitCallbacks.get(this.currentEvent);
+      if (commit) {
+        commit();
+        this.commitCallbacks.delete(this.currentEvent);
+      }
+      this.currentEvent = null;
+    }
+    // Commit every remaining queued event
+    while (this.queue.length > 0) {
+      const event = this.queue.shift()!;
+      const commit = this.commitCallbacks.get(event);
+      if (commit) {
+        commit();
+        this.commitCallbacks.delete(event);
+      }
+    }
     this.draining = false;
     this.onDrainComplete = null;
   }
@@ -114,6 +145,7 @@ export class VisualEventQueue {
     }
 
     const event = this.queue.shift()!;
+    this.currentEvent = event;
     const handler = this.handlers.get(event.type);
 
     if (!handler) {
@@ -124,6 +156,7 @@ export class VisualEventQueue {
         commit();
         this.commitCallbacks.delete(event);
       }
+      this.currentEvent = null;
       this.processNext();
       return;
     }
@@ -135,6 +168,7 @@ export class VisualEventQueue {
         commit();
         this.commitCallbacks.delete(event);
       }
+      this.currentEvent = null;
       this.processNext();
     });
   }

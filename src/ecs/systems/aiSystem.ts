@@ -42,6 +42,8 @@ export function processAITurns(
   const aiEntities = query(world, [AI, Turn, Position]);
   const players = query(world, [PlayerTag]);
   const allCombatants = Array.from(query(world, [Position, Faction, Health]));
+  /** Tiles claimed by pending moves this batch (prevents same-tile overlap). */
+  const pendingTiles = new Set<string>();
   let acted = 0;
 
   for (const eid of aiEntities) {
@@ -65,12 +67,12 @@ export function processAITurns(
       } else {
         // Seek toward target
         AI.behaviour[eid] = AIBehaviour.SEEK;
-        seekToward(eid, target, map, world, eventQueue);
+        seekToward(eid, target, map, world, eventQueue, pendingTiles);
       }
     } else {
       // No hostile in range — wander
       AI.behaviour[eid] = AIBehaviour.WANDER;
-      wander(eid, map, world, eventQueue);
+      wander(eid, map, world, eventQueue, pendingTiles);
     }
 
     Turn.energy[eid] -= ACTION_COST;
@@ -121,6 +123,7 @@ function wander(
   map: TileMap,
   world: object,
   eventQueue: VisualEventQueue,
+  pendingTiles: Set<string>,
 ): void {
   const x = Position.x[eid];
   const y = Position.y[eid];
@@ -134,7 +137,10 @@ function wander(
     if (!map.inBounds(nx, ny)) continue;
     if (map.blocksMovement(nx, ny)) continue;
     if (isTileOccupied(nx, ny, eid, world)) continue;
+    const key = `${nx},${ny}`;
+    if (pendingTiles.has(key)) continue;
 
+    pendingTiles.add(key);
     enqueueMove(eid, x, y, nx, ny, eventQueue);
     return;
   }
@@ -148,6 +154,7 @@ function seekToward(
   map: TileMap,
   world: object,
   eventQueue: VisualEventQueue,
+  pendingTiles: Set<string>,
 ): void {
   const sx = Position.x[eid];
   const sy = Position.y[eid];
@@ -156,6 +163,15 @@ function seekToward(
 
   const step = bfsNextStep(sx, sy, tx, ty, map, eid, world);
   if (step) {
+    // If next step IS the target tile, attack instead of moving onto it
+    if (step.x === tx && step.y === ty) {
+      performAttack(eid, target, world, eventQueue);
+      return;
+    }
+    // Block if tile is occupied or already claimed this batch
+    const key = `${step.x},${step.y}`;
+    if (isTileOccupied(step.x, step.y, eid, world) || pendingTiles.has(key)) return;
+    pendingTiles.add(key);
     enqueueMove(eid, sx, sy, step.x, step.y, eventQueue);
   }
   // else no path — idle
