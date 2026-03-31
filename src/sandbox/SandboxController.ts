@@ -15,6 +15,7 @@ import type { SpeciesData } from '../types';
 import type { TurnSystem } from '../ecs/systems/turnSystem';
 import type { VisualEventQueue } from '../visual/EventQueue';
 import { DebugOverlayRegistry } from './debugOverlays';
+import { clearEntityAICache } from '../ecs/systems/aiSystem';
 import type { SandboxTool, TileInspectData, EntityInspectData, ComponentSectionData } from './types';
 
 const VIS_NAMES: Record<number, string> = {
@@ -46,7 +47,8 @@ export class SandboxController {
 
   // ── Debug overlays ──
   readonly debugRegistry = new DebugOverlayRegistry();
-  readonly enabledOverlays = new Set<string>();
+  /** Per-entity pinned overlays: eid → Set<componentName> */
+  readonly pinnedOverlays = new Map<number, Set<string>>();
 
   // ── Refs (set by GameScene) ──
   private tileMap!: TileMap;
@@ -92,7 +94,7 @@ export class SandboxController {
       this.selectedTile = null;
       this.selectedEntity = null;
       this.autoPlay = false;
-      this.enabledOverlays.clear();
+      // pinnedOverlays intentionally NOT cleared — survive panel close
     }
     this.emit('toggle');
   }
@@ -205,6 +207,8 @@ export class SandboxController {
     AI.lastKnownX[eid] = -1;
     AI.lastKnownY[eid] = -1;
     AI.searchBudget[eid] = 0;
+    AI.cachedTargetX[eid] = -1;
+    AI.cachedTargetY[eid] = -1;
 
     this.emit('entity_spawned', { eid, x, y, speciesId: species.id });
     return eid;
@@ -214,7 +218,9 @@ export class SandboxController {
     const players = query(this.world, [PlayerTag]);
     if (players.includes(eid)) return false;
 
+    clearEntityAICache(eid);
     removeEntity(this.world, eid);
+    this.pinnedOverlays.delete(eid);
     this.selectedEntity = null;
     this.emit('entity_removed', { eid });
     return true;
@@ -227,17 +233,40 @@ export class SandboxController {
     this.emit('selection_changed');
   }
 
+  /** Toggle a debug overlay pin for the currently selected entity. */
   toggleOverlay(name: string): void {
-    if (this.enabledOverlays.has(name)) {
-      this.enabledOverlays.delete(name);
+    const eid = this.selectedEntity;
+    if (eid === null) return;
+
+    let set = this.pinnedOverlays.get(eid);
+    if (set?.has(name)) {
+      set.delete(name);
+      if (set.size === 0) this.pinnedOverlays.delete(eid);
     } else {
-      this.enabledOverlays.add(name);
+      if (!set) {
+        set = new Set();
+        this.pinnedOverlays.set(eid, set);
+      }
+      set.add(name);
     }
     this.emit('overlays_changed');
   }
 
+  /** Is an overlay pinned for the currently selected entity? */
   isOverlayEnabled(name: string): boolean {
-    return this.enabledOverlays.has(name);
+    if (this.selectedEntity === null) return false;
+    return this.pinnedOverlays.get(this.selectedEntity)?.has(name) ?? false;
+  }
+
+  /** Clear all pinned overlays for all entities. */
+  clearAllOverlays(): void {
+    this.pinnedOverlays.clear();
+    this.emit('overlays_changed');
+  }
+
+  /** Check if any overlays are pinned anywhere. */
+  hasAnyOverlays(): boolean {
+    return this.pinnedOverlays.size > 0;
   }
 
   /** Expose world for debug registry. */
@@ -257,9 +286,9 @@ export class SandboxController {
   // SIMULATION
   // ═══════════════════════════════════════════════════════════
 
+  /** Request a sandbox turn advance. GameScene handles the actual processing. */
   advanceTurn(): void {
-    this.turnSystem.forceTick(this.world);
-    this.emit('turn_advanced');
+    this.emit('advance_turn');
   }
 
   /** Get map ref (for AI system calls from GameScene). */
@@ -296,5 +325,10 @@ export class SandboxController {
   setAutoPlaySpeed(v: number): void {
     this.autoPlaySpeed = Math.max(1, Math.min(10, v));
     this.emit('speed_changed', this.autoPlaySpeed);
+  }
+
+  setAiOnly(v: boolean): void {
+    this.aiOnly = v;
+    this.emit('aionly_changed', v);
   }
 }

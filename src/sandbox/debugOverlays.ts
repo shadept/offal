@@ -39,6 +39,10 @@ export interface ComponentInspector {
   hasOverlay: boolean;
   /** Draw the debug overlay. Only called when hasOverlay is true. */
   renderOverlay?(gfx: OverlayGraphics, world: object, eid: number, map: TileMap): void;
+  /** Field labels that can be edited directly in the inspector. */
+  editableFields?: ReadonlySet<string>;
+  /** Set a field value from a string. Only called for editable fields. */
+  setField?(world: object, eid: number, label: string, value: string): void;
 }
 
 // ── Built-in inspectors ──
@@ -59,14 +63,29 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
       ['y', String(Position.y[eid])],
     ],
     hasOverlay: false,
+    editableFields: new Set(['x', 'y']),
+    setField(_w, eid, label, value) {
+      const n = parseInt(value, 10);
+      if (Number.isNaN(n)) return;
+      if (label === 'x') Position.x[eid] = n;
+      if (label === 'y') Position.y[eid] = n;
+    },
   },
   {
     name: 'Health',
     hasComponent: (w, eid) => hasComponent(w, eid, Health),
     getFields: (_w, eid) => [
-      ['HP', `${Health.hp[eid]} / ${Health.maxHp[eid]}`],
+      ['HP', String(Health.hp[eid])],
+      ['Max HP', String(Health.maxHp[eid])],
     ],
     hasOverlay: false,
+    editableFields: new Set(['HP', 'Max HP']),
+    setField(_w, eid, label, value) {
+      const n = parseInt(value, 10);
+      if (Number.isNaN(n)) return;
+      if (label === 'HP') Health.hp[eid] = n;
+      if (label === 'Max HP') Health.maxHp[eid] = n;
+    },
   },
   {
     name: 'Turn',
@@ -76,6 +95,13 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
       ['Speed', Turn.speed[eid].toFixed(0)],
     ],
     hasOverlay: false,
+    editableFields: new Set(['Energy', 'Speed']),
+    setField(_w, eid, label, value) {
+      const n = parseInt(value, 10);
+      if (Number.isNaN(n)) return;
+      if (label === 'Energy') Turn.energy[eid] = n;
+      if (label === 'Speed') Turn.speed[eid] = n;
+    },
   },
   {
     name: 'Faction',
@@ -92,6 +118,12 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
       ['Attack', String(CombatStats.attackDamage[eid])],
     ],
     hasOverlay: false,
+    editableFields: new Set(['Attack']),
+    setField(_w, eid, label, value) {
+      const n = parseInt(value, 10);
+      if (Number.isNaN(n)) return;
+      if (label === 'Attack') CombatStats.attackDamage[eid] = n;
+    },
   },
   {
     name: 'Renderable',
@@ -109,6 +141,12 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
       ['Range', String(FOV.range[eid])],
     ],
     hasOverlay: true,
+    editableFields: new Set(['Range']),
+    setField(_w, eid, label, value) {
+      const n = parseInt(value, 10);
+      if (Number.isNaN(n) || n < 0) return;
+      if (label === 'Range') FOV.range[eid] = n;
+    },
     renderOverlay(gfx, _world, eid, map) {
       const x = Position.x[eid];
       const y = Position.y[eid];

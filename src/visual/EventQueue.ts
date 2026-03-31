@@ -74,6 +74,15 @@ export class VisualEventQueue {
 
   /** Skip all remaining events instantly */
   skipAll(): void {
+    // Commit the in-flight event (already shifted off the queue)
+    if (this.currentEvent) {
+      const commit = this.commitCallbacks.get(this.currentEvent);
+      if (commit) {
+        commit();
+        this.commitCallbacks.delete(this.currentEvent);
+      }
+      this.currentEvent = null;
+    }
     while (this.queue.length > 0) {
       const event = this.queue.shift()!;
       const commit = this.commitCallbacks.get(event);

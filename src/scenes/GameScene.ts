@@ -14,7 +14,7 @@
  */
 import { Scene } from 'phaser';
 import { createGameWorld, spawnPlayer } from '../ecs/world';
-import { addEntity, addComponent, removeEntity, hasComponent } from 'bitecs';
+import { addEntity, addComponent, removeEntity, hasComponent, query } from 'bitecs';
 import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
   Health, Faction, CombatStats, Dead,
@@ -31,8 +31,9 @@ import type { VisualEvent } from '../types';
 import { TEX, speciesTexKey } from './BootScene';
 import { HUD } from '../ui/HUD';
 import { SandboxController } from '../sandbox/SandboxController';
-import { SandboxPanel } from '../sandbox/SandboxPanel';
-import { processAITurns, performAttack } from '../ecs/systems/aiSystem';
+import { mount, unmount } from 'svelte';
+import SandboxPanel from '../ui/SandboxPanel.svelte';
+import { processAITurns, performAttack, clearEntityAICache } from '../ecs/systems/aiSystem';
 import { getRegistry } from '../data/loader';
 
 /** Texture key for each tile index (matches data/tiles.json5) */
@@ -92,7 +93,7 @@ export class GameScene extends Scene {
 
   // ── Sandbox ──
   private sandbox!: SandboxController;
-  private sandboxPanel!: SandboxPanel;
+  private sandboxPanelHandle: Record<string, unknown> | null = null;
   private tabKey!: Phaser.Input.Keyboard.Key;
   private advanceKey!: Phaser.Input.Keyboard.Key;
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
@@ -188,7 +189,7 @@ export class GameScene extends Scene {
     // ── Sandbox ──
     this.sandbox = new SandboxController();
     this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue);
-    this.sandboxPanel = new SandboxPanel(this.sandbox);
+    this.sandboxPanelHandle = mount(SandboxPanel, { target: document.body, props: { ctrl: this.sandbox } });
 
     // Selection highlight (yellow outline, hidden by default)
     this.selectionHighlight = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE);
@@ -212,10 +213,18 @@ export class GameScene extends Scene {
       if (event === 'entity_spawned') this.onEntitySpawned(data as { eid: number; x: number; y: number; speciesId: string });
       if (event === 'entity_removed') this.onEntityRemoved(data as { eid: number });
       if (event === 'reveal_changed') this.onRevealChanged();
-      if (event === 'turn_advanced') this.onTurnAdvanced();
+      if (event === 'advance_turn') this.runSandboxTurn();
       if (event === 'selection_changed') this.updateDebugOverlays();
       if (event === 'overlays_changed') this.updateDebugOverlays();
+      if (event === 'field_edited') this.onFieldEdited(data as { eid: number; component: string });
     });
+  }
+
+  shutdown(): void {
+    if (this.sandboxPanelHandle) {
+      unmount(this.sandboxPanelHandle as ReturnType<typeof mount>);
+      this.sandboxPanelHandle = null;
+    }
   }
 
   update(time: number, delta: number): void {
@@ -271,10 +280,10 @@ export class GameScene extends Scene {
           break;
 
         case TurnPhase.ENEMY_ANIMATION:
-          // Player keypress interrupts enemy animations
+          // Player keypress interrupts enemy animations — lands at
+          // PLAYER_INPUT. Next frame's update() picks up the input.
           if (this.hasPlayerInput()) {
             this.interruptAnimations();
-            this.handlePlayerInput();
           }
           break;
       }
@@ -436,25 +445,47 @@ export class GameScene extends Scene {
    * clean up dead entities, snap sprites to committed state, and
    * return to PLAYER_INPUT phase.
    */
+  /**
+   * Interrupt running animations: complete all tweens (snap to end + fire
+   * onComplete), flush any remaining events, clean up, and run the turn
+   * bookkeeping that the drain callback would have performed.
+   *
+   * Only valid during ENEMY_ANIMATION phase.
+   */
   private interruptAnimations(): void {
-    this.tweens.killAll();
-    this.eventQueue.flushAll();
+    if (this.turnSystem.phase !== TurnPhase.ENEMY_ANIMATION) return;
+
+    // Enable skip mode so event handlers triggered by tween completion
+    // resolve instantly instead of creating new tweens
+    this.eventQueue.skipMode = true;
+
+    // Complete all running tweens — snaps to end values and fires
+    // onComplete, which chains through the event queue with skipMode on
+    for (const tween of this.tweens.getTweens()) {
+      tween.complete();
+    }
+
+    // Safety net: flush anything the tween chain didn't reach
+    if (this.eventQueue.isDraining || this.eventQueue.length > 0) {
+      this.eventQueue.flushAll();
+    }
+
     this.cleanupDeadEntities();
     this.syncAllEntitySprites();
     this.updateFOV();
     this.renderTiles();
-    this.turnSystem.phase = TurnPhase.PLAYER_INPUT;
+    this.updateDebugOverlays();
+    this.eventQueue.skipMode = false;
+
+    // Run the turn bookkeeping that the drain callback would have done:
+    // tick energy, increment turnCount, determine next actor
+    this.turnSystem.onEnemyAnimationComplete(this.world);
   }
 
   /** Remove sprites and ECS entities for all entities marked Dead. */
   private cleanupDeadEntities(): void {
-    const dead: number[] = [];
-    for (const [eid] of this.entitySprites) {
-      if (hasComponent(this.world, eid, Dead)) {
-        dead.push(eid);
-      }
-    }
-    for (const eid of dead) {
+    const dead = query(this.world, [Dead]);
+    for (const eid of [...dead]) {
       this.removeDeadEntity(eid);
     }
   }
@@ -515,9 +546,10 @@ export class GameScene extends Scene {
   }
 
   private onPlayerAnimationDone(): void {
-    // Recompute FOV after movement
+    this.cleanupDeadEntities();
     this.updateFOV();
     this.renderTiles();
+    this.updateDebugOverlays();
 
     // Advance turn
     this.turnSystem.onPlayerAnimationComplete(this.world);
@@ -526,16 +558,19 @@ export class GameScene extends Scene {
   /** Process enemy turn with AI behaviours and combat. */
   private processEnemyTurn(): void {
     processAITurns(this.world, this.tileMap, this.eventQueue);
-    this.turnSystem.phase = TurnPhase.ENEMY_ANIMATION;
+    this.turnSystem.advance(this.world);
 
     // Drain visual queue (AI move/attack events)
     if (this.eventQueue.length > 0) {
       this.eventQueue.drain(() => {
+        this.cleanupDeadEntities();
         this.updateFOV();
         this.renderTiles();
+        this.updateDebugOverlays();
         this.turnSystem.onEnemyAnimationComplete(this.world);
       });
     } else {
+      this.updateDebugOverlays();
       this.turnSystem.onEnemyAnimationComplete(this.world);
     }
   }
@@ -659,6 +694,8 @@ export class GameScene extends Scene {
     });
 
     // ── Death event (FOV-aware) ──
+    // Visual only — the commit callback (in performAttack) marks Dead.
+    // Actual entity removal happens in cleanupDeadEntities() after drain.
     this.eventQueue.registerHandler('death', (event: VisualEvent, onComplete: () => void) => {
       const eid = event.entityId;
       const sprite = this.entitySprites.get(eid);
@@ -666,13 +703,8 @@ export class GameScene extends Scene {
       const ey = Position.y[eid];
       const visible = this.tileMap.getVisibility(ex, ey) === Visibility.VISIBLE;
 
-      // Mark dead in ECS immediately (also done in commit callback for flush safety)
-      if (!hasComponent(this.world, eid, Dead)) {
-        addComponent(this.world, eid, Dead);
-      }
-
       if (!sprite || this.eventQueue.skipMode || !visible) {
-        this.removeDeadEntity(eid);
+        this.destroyEntitySprite(eid);
         onComplete();
         return;
       }
@@ -690,7 +722,7 @@ export class GameScene extends Scene {
         duration: DEATH_DURATION,
         ease: 'Quad.easeIn',
         onComplete: () => {
-          this.removeDeadEntity(eid);
+          this.destroyEntitySprite(eid);
           onComplete();
         },
       });
@@ -700,6 +732,8 @@ export class GameScene extends Scene {
   /** Remove a dead entity from world and visual layer. */
   private removeDeadEntity(eid: number): void {
     this.destroyEntitySprite(eid);
+    this.sandbox.pinnedOverlays.delete(eid);
+    clearEntityAICache(eid);
     removeEntity(this.world, eid);
   }
 
@@ -844,13 +878,14 @@ export class GameScene extends Scene {
       this.sandboxDraining = true;
       this.eventQueue.drain(() => {
         this.sandboxDraining = false;
+        this.cleanupDeadEntities();
         this.updateFOV();
         this.renderTiles();
-        this.sandboxPanel.updateInspector();
+        this.sandbox.emit('state_changed');
         this.updateDebugOverlays();
       });
     } else {
-      this.sandboxPanel.updateInspector();
+      this.sandbox.emit('state_changed');
       this.updateDebugOverlays();
     }
   }
@@ -903,42 +938,54 @@ export class GameScene extends Scene {
 
   private onSandboxToggle(): void {
     if (!this.sandbox.active) {
-      // Exiting sandbox — clean up
+      // Exiting sandbox — clean up panel state, but keep pinned overlays
       this.selectionHighlight.setVisible(false);
-      this.clearDebugOverlays();
       this.autoPlayTimer = 0;
       this.sandboxDraining = false;
       // Restore FOV
       this.updateFOV();
       this.renderTiles();
+      // Refresh overlays (keeps pinned ones visible)
+      this.updateDebugOverlays();
     }
   }
 
-  /** Redraw all enabled debug overlays for the selected entity. */
+  /** Redraw all pinned debug overlays for all entities. */
   private updateDebugOverlays(): void {
-    this.clearDebugOverlays();
+    // Track which keys are still active so we can hide stale ones
+    const activeKeys = new Set<string>();
 
-    if (!this.sandbox.active || this.sandbox.selectedEntity === null) return;
-
-    const eid = this.sandbox.selectedEntity;
     const world = this.sandbox.getWorld();
     const map = this.sandbox.getMap();
     const registry = this.sandbox.debugRegistry;
-    const inspectors = registry.getFor(world, eid);
 
-    for (const inspector of inspectors) {
-      if (!inspector.hasOverlay || !inspector.renderOverlay) continue;
-      if (!this.sandbox.isOverlayEnabled(inspector.name)) continue;
+    for (const [eid, components] of this.sandbox.pinnedOverlays) {
+      const inspectors = registry.getFor(world, eid);
+      for (const inspector of inspectors) {
+        if (!inspector.hasOverlay || !inspector.renderOverlay) continue;
+        if (!components.has(inspector.name)) continue;
 
-      let gfx = this.debugOverlays.get(inspector.name);
-      if (!gfx) {
-        gfx = this.add.graphics();
-        gfx.setDepth(5);
-        this.debugOverlays.set(inspector.name, gfx);
+        const key = `${eid}:${inspector.name}`;
+        activeKeys.add(key);
+
+        let gfx = this.debugOverlays.get(key);
+        if (!gfx) {
+          gfx = this.add.graphics();
+          gfx.setDepth(5);
+          this.debugOverlays.set(key, gfx);
+        }
+        gfx.clear();
+        gfx.setVisible(true);
+        inspector.renderOverlay(gfx, world, eid, map);
       }
-      gfx.clear();
-      gfx.setVisible(true);
-      inspector.renderOverlay(gfx, world, eid, map);
+    }
+
+    // Hide any overlays that are no longer pinned
+    for (const [key, gfx] of this.debugOverlays) {
+      if (!activeKeys.has(key)) {
+        gfx.clear();
+        gfx.setVisible(false);
+      }
     }
   }
 
@@ -973,8 +1020,6 @@ export class GameScene extends Scene {
 
   private onEntityRemoved(data: { eid: number }): void {
     this.destroyEntitySprite(data.eid);
-    // Refresh inspector
-    this.sandboxPanel.updateInspector();
   }
 
   private onRevealChanged(): void {
@@ -982,10 +1027,14 @@ export class GameScene extends Scene {
     this.renderTiles();
   }
 
-  private onTurnAdvanced(): void {
-    // Refresh inspector if something is selected
-    this.sandboxPanel.updateInspector();
+  private onFieldEdited(data: { eid: number; component: string }): void {
+    // Sync sprite position if Position was edited
+    if (data.component === 'Position') {
+      this.syncEntitySprite(data.eid);
+    }
+    this.updateDebugOverlays();
   }
+
 
   /** Spawn entities defined in the map data file. */
   private spawnMapEntities(spawns: { species: string; x: number; y: number }[]): void {
@@ -1024,6 +1073,8 @@ export class GameScene extends Scene {
       AI.lastKnownX[eid] = -1;
       AI.lastKnownY[eid] = -1;
       AI.searchBudget[eid] = 0;
+      AI.cachedTargetX[eid] = -1;
+      AI.cachedTargetY[eid] = -1;
 
       this.createEntitySprite(eid, species.id);
     }

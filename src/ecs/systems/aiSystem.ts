@@ -33,18 +33,25 @@ const MAX_RANGE = 20;
 // Path cache — stored outside bitECS (variable-length arrays)
 // ═══════════════════════════════════════════════════════════
 
+// Path cache — variable-length arrays can't live in bitECS typed arrays.
+// Cleaned up via clearEntityAICache() when entities are removed.
 const aiPaths = new Map<number, { x: number; y: number }[]>();
-const aiCachedTargetPos = new Map<number, { x: number; y: number }>();
 
 /** Get the cached A* path for an entity (for debug overlay). */
 export function getAIPath(eid: number): { x: number; y: number }[] {
   return aiPaths.get(eid) ?? [];
 }
 
-/** Clear cached path for an entity. */
+/** Clear cached path and component cache fields for an entity. */
 function clearPath(eid: number): void {
   aiPaths.delete(eid);
-  aiCachedTargetPos.delete(eid);
+  AI.cachedTargetX[eid] = -1;
+  AI.cachedTargetY[eid] = -1;
+}
+
+/** Clean up path cache when an entity is removed from the world. */
+export function clearEntityAICache(eid: number): void {
+  aiPaths.delete(eid);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -419,7 +426,17 @@ function wander(
   const x = Position.x[eid];
   const y = Position.y[eid];
 
+  // Shuffle directions but push the reverse of last move to the end
+  // to avoid back-and-forth flashing
+  const lastDx = AI.lastDirX[eid];
+  const lastDy = AI.lastDirY[eid];
   const dirs = [...DIRS].sort(() => Math.random() - 0.5);
+  if (lastDx !== 0 || lastDy !== 0) {
+    const revIdx = dirs.findIndex(d => d.dx === -lastDx && d.dy === -lastDy);
+    if (revIdx >= 0) {
+      dirs.push(dirs.splice(revIdx, 1)[0]);
+    }
+  }
 
   for (const { dx, dy } of dirs) {
     const nx = x + dx;
@@ -438,6 +455,8 @@ function wander(
     if (pendingTiles.has(key)) continue;
 
     pendingTiles.add(key);
+    AI.lastDirX[eid] = dx;
+    AI.lastDirY[eid] = dy;
     enqueueMove(eid, x, y, nx, ny, eventQueue);
     return;
   }
@@ -455,11 +474,12 @@ function getOrComputePath(
   map: TileMap,
   world: object,
 ): { x: number; y: number }[] | null {
-  const cached = aiCachedTargetPos.get(eid);
+  const cachedX = AI.cachedTargetX[eid];
+  const cachedY = AI.cachedTargetY[eid];
   const path = aiPaths.get(eid);
 
   // Reuse cached path if target hasn't moved and path is non-empty
-  if (path && path.length > 0 && cached && cached.x === tx && cached.y === ty) {
+  if (path && path.length > 0 && cachedX === tx && cachedY === ty) {
     // Validate first step is still walkable
     const step = path[0];
     const isTarget = step.x === tx && step.y === ty;
@@ -474,7 +494,8 @@ function getOrComputePath(
   const newPath = aStarPath(sx, sy, tx, ty, map, eid, world);
   if (newPath && newPath.length > 0) {
     aiPaths.set(eid, newPath);
-    aiCachedTargetPos.set(eid, { x: tx, y: ty });
+    AI.cachedTargetX[eid] = tx;
+    AI.cachedTargetY[eid] = ty;
     return newPath;
   }
 
@@ -584,27 +605,19 @@ export function performAttack(
   eventQueue: VisualEventQueue,
 ): void {
   const damage = CombatStats.attackDamage[attacker] || 1;
+  const willKill = Health.hp[target] - damage <= 0;
 
-  const hitEvent: VisualEvent = {
-    type: 'hit_flash',
-    entityId: target,
-    data: { damage, attackerId: attacker },
-  };
+  eventQueue.push(
+    { type: 'hit_flash', entityId: target, data: { damage, attackerId: attacker } },
+    () => { Health.hp[target] -= damage; },
+  );
 
-  eventQueue.push(hitEvent, () => {
-    Health.hp[target] -= damage;
-
-    if (Health.hp[target] <= 0) {
-      const deathEvent: VisualEvent = {
-        type: 'death',
-        entityId: target,
-        data: {},
-      };
-      eventQueue.push(deathEvent, () => {
-        addComponent(world, target, Dead);
-      });
-    }
-  });
+  if (willKill) {
+    eventQueue.push(
+      { type: 'death', entityId: target, data: {} },
+      () => { addComponent(world, target, Dead); },
+    );
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

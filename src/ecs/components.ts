@@ -39,6 +39,10 @@ export const AI = soa({
   lastKnownX: new Int32Array(MAX_ENTITIES),     // -1 = none
   lastKnownY: new Int32Array(MAX_ENTITIES),     // -1 = none
   searchBudget: new Uint8Array(MAX_ENTITIES),
+  cachedTargetX: new Int32Array(MAX_ENTITIES),  // path cache: target pos
+  cachedTargetY: new Int32Array(MAX_ENTITIES),
+  lastDirX: new Int8Array(MAX_ENTITIES),        // last wander direction
+  lastDirY: new Int8Array(MAX_ENTITIES),
 });
 
 export const AIState = {
@@ -68,5 +72,4 @@ export const CombatStats = soa({
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};
-export const ActedThisTurn = {}; // marks entities that have acted in current tick
 export const Dead = {}; // marks entities pending removal

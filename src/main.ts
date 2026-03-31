@@ -11,8 +11,8 @@ const game = new Phaser.Game({
   scene: [BootScene, GameScene],
   pixelArt: true,
   fps: {
-    target: 24,
-    // forceSetTimeOut: true,
+    target: 60,
+    forceSetTimeOut: true,
   },
   input: {
     keyboard: true,
