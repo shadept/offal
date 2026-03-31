@@ -272,9 +272,19 @@ These floors do not replace earned skill — they reduce the time to reach meani
 
 This creates hub decisions with real tradeoffs: spend materials on skill floors (faster ramp-up) or on consumables and equipment (better early survival)?
 
+### Narrative Framing (direction, not spec)
+
+The player character is a **clone** — an expendable asset produced by a corporation whose only interest is data and salvage. Death is not tragic; it is expected. The corporation files a report, prints another clone, and sends them in.
+
+This framing makes the meta-progression mechanically legible: the biological and technological knowledge you accumulate is literally what the previous clones died discovering. It's in the corporate database now. The next clone starts with access to it.
+
+It also earns the comedy naturally. You are disposable and aware of it. The hub is probably a clone factory with bad coffee. The mission briefing for a ship that killed your last three clones is a form letter.
+
+The specific narrative — who the corporation is, what the nebula is, what happened to the ships — is TBD and will be developed once there is something playable to build story around.
+
 ### The Hub
 
-A persistent location between missions (a salvage station, an abandoned relay — TBD by narrative). The hub is where meta-progress lives. Your character does not persist; your knowledge and resources do.
+A persistent location between missions (corporate facility, clone production wing — TBD). The hub is where meta-progress lives. Your character does not persist; the corporation's knowledge and resources do.
 
 ### Three Meta-Resources
 
