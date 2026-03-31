@@ -144,93 +144,139 @@ Computed each turn from active slots and status effects. Not stored.
 
 ## 3. Physics System
 
-Physical states propagate according to data-defined rules (`data/physics-rules.json5`). The engine runs these rules generically — it has no hardcoded knowledge of specific states. New physical states can be added by writing a rule entry, no code change required.
+The physics system is a **cell-based simulation**. Each tile holds concentrations of fluids and gases, a surface state, and a temperature value. Forces act on these values each turn — pressure differentials, heat, ventilation, gravity. The engine applies rules; it has no hardcoded knowledge of specific substances.
 
-States apply equally to tiles, items, and entity limbs. A wall tile, a wooden crate, and a wooden arm all share the same `flammability` property and are processed identically by the fire propagation rule.
+States apply equally to tiles, items, and entity limbs. A wall tile, a wooden crate, and a wooden arm share the same `flammability` property and are processed identically.
 
-### 3.1 Physical States
+### 3.1 Temperature
 
-| State | Propagates to | Consumed by | Notes |
-|---|---|---|---|
-| `on_fire` | Adjacent tiles/limbs where `flammability > threshold` | `wet`, `vacuum` | Spreads each turn with configurable delay |
-| `hot` | Adjacent tiles (weaker spread than fire) | — | Steam, overheated surfaces. Burns organics on contact. No visible flame. |
-| `wet` | Adjacent tiles (puddle spread) | `on_fire`, evaporation | Conducts electricity. Oil and acid are fluids with their own tags. |
-| `charged` | Adjacent conductors (`conductivity > threshold`) | — | Instant propagation along conductor chain. Stuns organics. |
-| `pressurised` | Enclosed spaces accumulate pressure | Rupture event | Builds when: fire + enclosed space, steam source active, sealed vents |
-| `vacuum` | Sealed adjacent spaces | Sealed door/bulkhead | Extinguishes fire. Pulls unsecured objects and entities toward breach. |
-| `gas` (tagged) | Adjacent tiles in enclosed spaces | Fire (ignites), ventilation | Gas type carries tags: `toxic`, `flammable`, `corrosive`, etc. |
-| `irradiated` | Slow spread through thin walls | Heavy shielding | Causes progressive `infected`-like status on organic entities |
-| `obscured` | Visibility blocked | — | Smoke, steam, or darkness. Affects perception system range. |
+In deep space, everything defaults to `cold`. Active ship systems generate and maintain `warm` zones. The player's suit maintains body warmth passively — this is abstracted, not simulated per body part.
 
-### 3.2 Ship Systems as Physics Actors
+**Temperature has two relevant states for gameplay:**
 
-The steam-punk setting adds a layer: the ship's infrastructure actively participates in physics. Pipes, valves, reactors, and vents are not just scenery.
-
-| System | Normal state | Failure/interaction |
+| State | Source | Effect |
 |---|---|---|
-| **Steam pipes** | Sealed, pressurised | Breach → `hot` + `pressurised` cloud in adjacent tiles. Rupture → explosive decompression. |
-| **Electrical conduits** | Insulated | Damage → `charged` spreads to conductive floor/entities in range |
-| **Fuel lines** | Sealed | Breach → `gas (flammable)` fills space. Ignition → fire propagation or explosion depending on concentration |
-| **Ventilation** | Active | Disperses gas. Can be manually sealed (traps gas) or reversed (redirects it). |
-| **Bulkhead doors** | Sealed | Separates pressure zones. Opening wrong door between pressurised and vacuum = immediate breach event |
-| **Specimen tanks** | Sealed, O₂-enriched | Cracked → O₂ leak increases flammability of room. Full rupture → fire in O₂-enriched space is explosive |
+| `cold` | Space, dead systems, decompressed rooms | Progressive penalty to action speed. Sustained exposure causes status `hypothermic`. |
+| `warm` | Active systems, fire, steam, reactor proximity | Baseline. No penalty. |
+| `hot` | Fire adjacency, steam, overheated surfaces | Burns organic tissue on contact. Builds toward `on_fire` with sustained exposure. |
 
-Valves and switches are interactable. The player can redirect, seal, or open ship systems. This is not a puzzle mechanic — it is a physics tool.
+Temperature is tile-based, not per-entity. Entities inherit the temperature state of the tiles they occupy. This keeps it simple for the player to reason about: if the tile is hot, you will be affected.
 
-### 3.3 Fluid Properties
+### 3.2 Fluid Simulation
 
-Not all liquids are equal. Fluids are items/tiles with the `fluid` tag and specific material properties.
+Fluids are tile-level concentrations with material tags. They spread to adjacent lower or equal tiles (gravity), accumulate in depressions, and evaporate over time based on tile temperature.
 
-| Fluid | Flammability | Conductivity | Notable interaction |
+| Fluid | Key tags | Notable behaviour |
+|---|---|---|
+| Water | `conductive`, `fire_suppress` | Extinguishes fire. Enables electricity propagation. Evaporates to steam on hot tiles. |
+| Oil | `flammable_high`, `slick` | Spreads fire faster than most materials. Slick surface: entities may fall. Layered over water (does not mix). |
+| Acid | `corrosive` | Corrodes metal (`oxidising` status, progressive). Damages organic tissue. Does not burn. Does not mix with water — dilutes instead. |
+| Blood | `organic`, `conductive_low` | Leaves persistent trail (perception by creatures). Slow evaporation. |
+| Coolant | `fire_suppress_high`, `toxic_inhale` | Suppresses both fire and `hot` state. Toxic when inhaled — damages lungs. |
+| Fuel | `flammable_extreme`, `volatile` | Does not burn gradually — ignites explosively above a concentration threshold. Does not mix with water. |
+| Biological fluid | `organic`, `flammable_low` | Produced by creatures. Tags vary by species. Some are corrosive, some adhesive, some toxic. |
+
+**Fluid interactions:**
+- Oil floats on water — oil layer can burn even with water underneath
+- Acid + water → dilution (acid weakens, water becomes mildly corrosive)
+- Fuel + water → no mixing, fuel remains volatile on surface
+
+### 3.3 Gas Simulation
+
+Gases occupy tile volume. They spread based on pressure differential and temperature (hot gases rise, heavy gases sink). Enclosed spaces accumulate gas concentration; open or ventilated spaces disperse it.
+
+| Gas | Key tags | Behaviour |
+|---|---|---|
+| Oxygen | `oxidiser` | Increases flammability of all tiles at high concentration. Flashover risk. |
+| CO₂ | `asphyxiant` | Displaces O₂. Causes suffocation at high concentration. Inert otherwise. |
+| Methane / fuel gas | `flammable_extreme`, `heavy` | Sinks to floor level. Explosive above concentration threshold. |
+| Steam | `hot`, `obscuring`, `pressurising` | Burns organics. Blocks vision. Builds pressure in enclosed spaces. |
+| Spores | `organic`, `toxic_inhale` | Released by biological entities or structures when damaged/killed. Infect lungs. Dispersed by air movement. |
+| Smoke | `obscuring`, `asphyxiant_low` | Generated by fire. Reduces visibility. Minor lung irritation. |
+| Alien gas | `unknown` | Properties not documented. Behaviour emergent from underlying tags discovered by player. |
+
+**Ventilation as force, not system**: ventilation is a directional force applied to gas tiles. Opening a vent applies pressure in a direction. Sealing a vent traps gas. Reversing a vent redirects flow. The ventilation system is not separate — it is a source of force on the gas simulation.
+
+**Gas density and vertical behaviour**: heavy gases (methane, some alien types) settle at tile floor level. Light gases (steam, some biologicals) rise. In tall rooms, gas stratifies. This matters for ignition height and where entities are affected.
+
+### 3.4 Surface States
+
+Tiles carry persistent surface contamination independent of fluid pools.
+
+| Surface state | Source | Effect |
+|---|---|---|
+| `oiled` | Oil spill or residue | Slick movement, ignition risk |
+| `acidic` | Acid exposure | Contact damage to entities crossing |
+| `spore_coated` | Spore deposit | Relaunched as gas cloud by movement or impact |
+| `scorched` | Fire history | Higher base temperature, reduced structural integrity |
+| `wet` | Water exposure | Conducts electricity, suppresses ignition |
+
+### 3.5 Pressure and Vacuum
+
+Pressure is tile-level. Each enclosed space has a pressure value. Sources increase it; breaches and vents reduce it.
+
+**Decompression event** (pressurised room breaches into vacuum):
+- Entities and unsecured items pulled toward breach (Athletics check to resist)
+- Room loses atmosphere — O₂ concentration drops to zero
+- Fire extinguished by pressure drop
+- Crystal surfaces shatter into shards (area damage arc) before breach completes
+
+**Overpressure rupture** (concentration exceeds structural threshold):
+- Weakest wall or door ruptures outward
+- Steam, gas, or air explosive release
+- Fragment damage to adjacent tiles
+- Entities near rupture take impact damage
+
+### 3.6 Ship Infrastructure as Physics Source
+
+Ship systems are sources and sinks for the physics simulation — not a separate layer.
+
+| System | Physics contribution |
+|---|---|
+| Steam pipes | Pressure source. Breach → `hot` + pressure increase in adjacent tiles |
+| Electrical conduits | `charged` source. Damage → electricity propagates to conductive surfaces |
+| Fuel lines | Gas source. Breach → `fuel_gas` concentration builds in enclosed space |
+| Ventilation | Directional force on gas tiles. Controllable via valves |
+| Bulkheads | Pressure barrier. Opening between pressure zones triggers decompression if differential is high |
+| Specimen tanks | O₂ source. Breach raises O₂ concentration, increasing fire intensity |
+| Reactors | Heat source. Coolant failure → `hot` tiles spread from reactor room outward |
+
+Valves and terminals are interactable. The player can modify ship systems to redirect physics forces — this is not a puzzle layer, it is the same physics tool available to any entity that can interact with terminals.
+
+### 3.7 Hull Type and Physics Profile
+
+Different ships have different base physics profiles. The player learns this through experience.
+
+| Hull type | Flammability | Conductivity | Notes |
 |---|---|---|---|
-| Water | 0 | 0.8 | Extinguishes fire, enables electricity propagation |
-| Oil | 0.9 | 0 | Burns intensely, spreads fire faster than wood |
-| Acid | 0 | 0.3 | Corrodes metal over time (`oxidising` stacks). Damages organic limbs. |
-| Blood | 0.1 | 0.4 | Leaves trail (perception). Moderate conductor. |
-| Coolant | 0 | 0.1 | Suppresses `hot`. Used in reactor systems. |
+| Military/industrial | Low | High | Metal construction, partial fire suppression, dangerous electrical grid |
+| Research/colony | Medium | Low | Organic materials for comfort, degraded suppression systems, more flammable rooms |
+| Biologically colonised | High (growth zones) | Low | Organic overgrowth on metal frame. Fluid secretions from creatures. Unpredictable burns. |
+| Alien / unknown | Variable | Unknown | Physics rules partially different. Player must discover material properties by experiment. |
 
-### 3.4 Vacuum and Pressure Events
+### 3.8 Interaction Chains
 
-Vacuum and overpressure are the most dramatic physics events — and the most distinctly space-setting.
-
-**Breach into vacuum**: when a wall, window, or bulkhead separating a pressurised space from vacuum is destroyed, a **decompression event** fires:
-- All unsecured items and entities in the room are pulled toward the breach (force proportional to pressure differential)
-- Entities must pass an Athletics check or be pulled through
-- The room rapidly loses atmosphere — creatures requiring O₂ begin suffocating
-- Fire in the room is extinguished by the pressure drop
-- Crystal windows shatter into shards (area damage) before the breach
-
-**Overpressure rupture**: when pressure in an enclosed space exceeds the structural threshold, the weakest wall/door ruptures outward:
-- Explosion of steam, gas, or air
-- Fragments damage adjacent tiles
-- Entities near the rupture point take impact damage
-
-**Player exploitation**: the player can intentionally cause breaches — shoot a window with enemies on the other side, open a valve to overpressurise a sealed room, seal a corridor to trap gas then ignite it.
-
-### 3.5 Interaction Chains
-
-Physics states combine in chains. These are not scripted — they emerge from the rules.
-
-**Examples of emergent chains:**
+Physics states combine in chains. These are not scripted — they emerge from the simulation rules.
 
 | Trigger | Chain | Outcome |
 |---|---|---|
-| Fire in sealed room with steam pipe | Fire → hot → pipe stress → pipe rupture → steam cloud → pressurises room → rupture | Room vents explosively |
-| Water on floor + charged enemy | Enemy steps in water → `charged` propagates through water → all entities in puddle shocked | Group stun without targeting |
-| O₂ leak + ignition source | O₂ concentration rises → fire spreads faster than normal → flashover | Room fully ablaze in fewer turns |
-| Fuel line breach + distant ignition | `gas (flammable)` fills corridor → player ignites at safe distance | Corridor fire trap |
-| Crystal wall + high-calibre shot | Crystal shatters → shard arc → breach into adjacent vacuum | Environmental collapse |
+| Fire in sealed room with steam pipe | Fire → pipe stress → rupture → steam → pressure builds → rupture event | Room vents explosively |
+| Water floor + charged entity | Entity steps in water → `charged` propagates through fluid → all entities in puddle shocked | Group stun |
+| O₂ leak + ignition | O₂ concentration rises → fire spreads at increased rate → flashover threshold crossed | Rapid room fire |
+| Fuel line breach + distant ignition | Fuel gas fills enclosed corridor → player ignites from outside | Corridor explosion |
+| Biological creature killed near vent | Spore release → vent active → spores distributed to adjacent rooms | Area infection |
+| Coolant line breach in reactor room | Coolant suppresses heat source → reactor runs hot → adjacent tiles begin heating → chain failure | Reactor meltdown arc |
 
-### 3.6 Player Exploitation Scenarios
+### 3.9 Player Exploitation Scenarios
 
-The physics system rewards understanding over power. A player who reads the environment can turn it into a weapon without direct combat skill.
+The physics system rewards understanding over power. A player who reads the environment can turn it into a weapon without direct combat investment.
 
-- **Herding**: open a valve to release steam into a corridor, forcing enemies to route around it
-- **Trapping**: seal a room, breach the fuel line, wait outside — then ignite through a small gap
-- **Chain reaction**: disable the coolant to a reactor, then leave — the heat builds until something fails
-- **Faction exploitation**: a charged floor near a pirate group and a security robot — let the robot trigger it
-- **Structural collapse**: target a crystal bulkhead adjacent to vacuum on the other side of a group of enemies
-- **Distraction**: ignite oil in a room to draw creature attention before sneaking through the adjacent corridor
+- **Herding**: open a steam valve into a corridor — enemies route around the hot zone
+- **Trapping**: seal a room, breach the fuel line, ignite from a distance
+- **Faction exploitation**: charged floor near both pirate group and security robot — let them trigger each other
+- **Spore redirection**: kill a fungal creature near a vent, reverse vent direction — spores flow toward enemies
+- **Structural collapse**: target crystal bulkhead adjacent to vacuum with enemies on the near side
+- **Coolant denial**: cut reactor coolant and leave — the heat failure happens on the next enemy's watch
 
 None of these require special items or skills. They require the player to have learned how the ship works.
 
