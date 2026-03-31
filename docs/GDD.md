@@ -252,6 +252,40 @@ Locomotion type is computed from the active locomotion slots of an individual at
 
 Locomotion affects movement speed, attack positioning, tile traversal rules, and animation selection. It is recalculated whenever a limb is gained or lost.
 
+---
+
+#### Locomotion Affinity & Adaptation
+
+Changing locomotion type does not immediately grant full performance. Every individual tracks **affinity** per locomotion type — a value representing how well the nervous system (or equivalent) has adapted to that body configuration.
+
+```
+LocomotionAffinity {
+  type: LocomotionId
+  value: float                 // 0.0 (no affinity) → 1.0 (fully adapted)
+}
+```
+
+**How affinity works:**
+
+- At birth/spawn: affinity for native locomotion type starts at `1.0`. All others start at `0.0`.
+- When derived locomotion changes (e.g. biped loses both legs, grafts serpent segments): the new type becomes dominant, but affinity starts wherever it currently is — typically `0.0` for a first transition.
+- Affinity grows through **active use** — each movement action, combat action, and interaction performed with the new locomotion increments the relevant affinity. It is not time-based; it is action-based.
+- Previous affinities decay slowly but do not reset to zero — a biped who briefly went serpentine and returns will re-adapt faster.
+- Affinity is capped at `1.0`. Natives start there and stay there unless their body plan changes.
+
+**What affinity penalises:**
+
+| Affinity | Effect |
+|---|---|
+| 1.0 | No penalty. Full native performance. |
+| 0.5–0.99 | Minor: slight speed reduction, occasional action delay |
+| 0.2–0.49 | Moderate: slower movement, awkward attack timing, some actions cost extra turns |
+| 0.0–0.19 | Severe: stumbling movement, significantly reduced speed, combat unreliable |
+
+Affinity affects **performance only** — not capability. A biped who grafts serpent segments can still constrict on turn 1; they're just slow and clumsy about it until they adapt.
+
+**The player feels this as discovery, not punishment.** The penalty is heaviest immediately after a radical body change — which is also when the player is most disoriented and experimenting. As they use the new body, it improves. The system rewards commitment to a chosen body plan without locking out experimentation.
+
 ### Limb Definition
 
 Limbs are items with the "limb" tag and a morphology attachment point.
