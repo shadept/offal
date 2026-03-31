@@ -88,16 +88,33 @@ Examples: `bleeding` (on stump, stacks), `burning` (on limb, spreads), `oxidisin
 
 This unifies injuries, diseases, environmental effects, and graft states into one system. The engine processes StatusEffects; it does not know their specific names.
 
+#### Internal Organs
+
+Three internal organs exist as special slots within the torso. They are not external and cannot be grafted or severed in normal combat — but they can be damaged by penetrating attacks, environmental effects, or StatusEffects that spread inward.
+
+| Organ | Function | Failure consequence |
+|---|---|---|
+| **Heart** | Pumps blood to all active limbs. Capacity = max total limbs that can be fully irrigated simultaneously. Extra limbs beyond capacity receive reduced performance. | Heart failure = rapid death. Severe damage = limb performance penalty across all grafted extras. |
+| **Lungs** | Breathing. Directly linked to the oxygen/pressure/gas system. | Damaged lungs in toxic gas or low-oxygen environments die faster. Full failure = suffocation. Entities without lungs (robotic, anaerobic) are immune to this system entirely. |
+| **Stomach** | Consuming food heals organic tissue and restores energy. | Damaged stomach blocks eating. Severe damage starts a starvation timer — eventually fatal. Forces resource management: fighting indefinitely is not viable. |
+
+The heart acts as a **natural cap on body evolution**. You can graft as many limbs as you have stumps, but the heart must irrigate them all. A baseline heart supports a baseline body. Exceeding its capacity is possible but comes with diminishing returns — and heart upgrades (rare, high-risk) are a meaningful progression milestone.
+
+The three organs interact: a full stomach improves heart efficiency. Damaged lungs reduce consciousness even with a healthy stomach. A damaged heart starves peripheral limbs of circulation before it kills.
+
+Simpler entities (robots, alien creatures) may lack some or all of these organs and are immune to the corresponding systems.
+
 #### Body Capacities
 
-Each entity has **global capacities** derived from its active limbs and their states:
+Each entity has **global capacities** derived from its active limbs, organs, and their states:
 
 - **Mobility** — derived from leg slots; reduced by leg loss or injury
 - **Manipulation** — derived from arm slots; reduced by arm loss
-- **Consciousness** — derived from head slot; affected by pain, blood loss
+- **Consciousness** — derived from head slot; affected by pain, blood loss, lung damage
+- **Circulation** — derived from heart; limits how many limbs operate at full capacity
 - **Structural Integrity** — derived from torso/core; reaches zero = death
 
-Capacities are not stored — they are computed each turn from slot states and active StatusEffects. Damage to a limb reduces its contribution to the relevant capacity proportionally.
+Capacities are not stored — they are computed each turn from slot states and active StatusEffects. Damage to a limb or organ reduces its contribution to the relevant capacity proportionally.
 
 #### Limb Loss & Bleeding
 
