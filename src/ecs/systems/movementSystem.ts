@@ -6,7 +6,8 @@
  *
  * Tile interactions (doors) are data-driven via the tile registry.
  */
-import { Position } from '../components';
+import { query, hasComponent } from 'bitecs';
+import { Position, BlocksMovement, Dead } from '../components';
 import { TileMap } from '../../map/TileMap';
 import { getRegistry } from '../../data/loader';
 import type { VisualEvent } from '../../types';
@@ -24,6 +25,22 @@ export interface MoveResult {
   openedDoor: boolean;
 }
 
+/** Check if a tile has another living entity on it. */
+export function isTileOccupied(x: number, y: number, excludeEid: number, world: object): boolean {
+  return getBlockingEntity(x, y, excludeEid, world) >= 0;
+}
+
+/** Return the entity blocking a tile, or -1 if none. */
+export function getBlockingEntity(x: number, y: number, excludeEid: number, world: object): number {
+  const entities = query(world, [Position, BlocksMovement]);
+  for (const eid of entities) {
+    if (eid === excludeEid) continue;
+    if (hasComponent(world, eid, Dead)) continue;
+    if (Position.x[eid] === x && Position.y[eid] === y) return eid;
+  }
+  return -1;
+}
+
 /**
  * Try to move entity in direction (dx, dy).
  * Returns the result and enqueues visual events.
@@ -34,6 +51,7 @@ export function tryMove(
   dy: number,
   map: TileMap,
   eventQueue: VisualEventQueue,
+  world: object,
 ): MoveResult {
   const fromX = Position.x[eid];
   const fromY = Position.y[eid];
@@ -71,6 +89,11 @@ export function tryMove(
 
   // Check if tile blocks movement
   if (map.blocksMovement(toX, toY)) {
+    return { moved: false, cost: 0, openedDoor: false };
+  }
+
+  // Check if tile is occupied by another entity
+  if (isTileOccupied(toX, toY, eid, world)) {
     return { moved: false, cost: 0, openedDoor: false };
   }
 

@@ -10,7 +10,7 @@
  * Pathfinding: A* with Manhattan distance heuristic, 4-directional.
  * Paths are cached per-entity and reused when the target hasn't moved.
  */
-import { query, hasComponent } from 'bitecs';
+import { query, hasComponent, addComponent } from 'bitecs';
 import {
   AI, AIState, Turn, PlayerTag, Position, FOV,
   Health, Faction, CombatStats, Dead, BlocksMovement,
@@ -21,6 +21,7 @@ import { getRegistry } from '../../data/loader';
 import { getVisibleTiles } from '../../map/fov';
 import type { VisualEvent } from '../../types';
 import type { VisualEventQueue } from '../../visual/EventQueue';
+import { isTileOccupied } from './movementSystem';
 
 /** Standard action cost */
 const ACTION_COST = 100;
@@ -576,7 +577,7 @@ function aStarPath(
 // ═══════════════════════════════════════════════════════════
 
 /** Attack a target entity. */
-function performAttack(
+export function performAttack(
   attacker: number,
   target: number,
   world: object,
@@ -599,7 +600,9 @@ function performAttack(
         entityId: target,
         data: {},
       };
-      eventQueue.push(deathEvent);
+      eventQueue.push(deathEvent, () => {
+        addComponent(world, target, Dead);
+      });
     }
   });
 }
@@ -629,17 +632,6 @@ function enqueueMove(
 // ═══════════════════════════════════════════════════════════
 // UTILITY
 // ═══════════════════════════════════════════════════════════
-
-/** Check if a tile has another living entity on it. */
-function isTileOccupied(x: number, y: number, excludeEid: number, world: object): boolean {
-  const entities = query(world, [Position, BlocksMovement]);
-  for (const eid of entities) {
-    if (eid === excludeEid) continue;
-    if (hasComponent(world, eid, Dead)) continue;
-    if (Position.x[eid] === x && Position.y[eid] === y) return true;
-  }
-  return false;
-}
 
 /** Chebyshev distance. */
 function chebyshev(x1: number, y1: number, x2: number, y2: number): number {

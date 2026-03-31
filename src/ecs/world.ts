@@ -6,7 +6,7 @@ import {
   addEntity,
   addComponent,
 } from 'bitecs';
-import { Position, Renderable, Turn, FOV, PlayerTag, Health, Faction, CombatStats } from './components';
+import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, Health, Faction, CombatStats } from './components';
 import { getFactionIndex } from './factions';
 
 export type GameWorld = ReturnType<typeof createGameWorld>;
@@ -44,6 +44,7 @@ export function spawnPlayer(world: object, opts: SpawnPlayerOpts): number {
   addComponent(world, eid, Turn);
   addComponent(world, eid, FOV);
   addComponent(world, eid, PlayerTag);
+  addComponent(world, eid, BlocksMovement);
   addComponent(world, eid, Health);
   addComponent(world, eid, Faction);
   addComponent(world, eid, CombatStats);

@@ -19,9 +19,9 @@ import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
   Health, Faction, CombatStats, Dead,
 } from '../ecs/components';
-import { initFactions, getFactionIndex } from '../ecs/factions';
+import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
 import { TurnSystem } from '../ecs/systems/turnSystem';
-import { tryMove } from '../ecs/systems/movementSystem';
+import { tryMove, getBlockingEntity } from '../ecs/systems/movementSystem';
 import { VisualEventQueue } from '../visual/EventQueue';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
 import { loadMap } from '../map/mapLoader';
@@ -32,7 +32,7 @@ import { TEX, speciesTexKey } from './BootScene';
 import { HUD } from '../ui/HUD';
 import { SandboxController } from '../sandbox/SandboxController';
 import { SandboxPanel } from '../sandbox/SandboxPanel';
-import { processAITurns } from '../ecs/systems/aiSystem';
+import { processAITurns, performAttack } from '../ecs/systems/aiSystem';
 import { getRegistry } from '../data/loader';
 
 /** Texture key for each tile index (matches data/tiles.json5) */
@@ -273,12 +273,7 @@ export class GameScene extends Scene {
         case TurnPhase.ENEMY_ANIMATION:
           // Player keypress interrupts enemy animations
           if (this.hasPlayerInput()) {
-            this.tweens.killAll();
-            this.eventQueue.flushAll();
-            this.syncAllEntitySprites();
-            this.updateFOV();
-            this.renderTiles();
-            this.turnSystem.phase = TurnPhase.PLAYER_INPUT;
+            this.interruptAnimations();
             this.handlePlayerInput();
           }
           break;
@@ -426,10 +421,41 @@ export class GameScene extends Scene {
       this.waitKey.isDown;
   }
 
-  /** Snap every entity sprite to its committed ECS position. */
+  /** Snap every entity sprite to its committed ECS position, resetting visual state. */
   private syncAllEntitySprites(): void {
-    for (const [eid] of this.entitySprites) {
+    for (const [eid, sprite] of this.entitySprites) {
+      sprite.setTint(0xffffff);
+      sprite.setAlpha(1);
+      sprite.setScale(1);
       this.syncEntitySprite(eid);
+    }
+  }
+
+  /**
+   * Interrupt all running animations: kill tweens, flush event queue,
+   * clean up dead entities, snap sprites to committed state, and
+   * return to PLAYER_INPUT phase.
+   */
+  private interruptAnimations(): void {
+    this.tweens.killAll();
+    this.eventQueue.flushAll();
+    this.cleanupDeadEntities();
+    this.syncAllEntitySprites();
+    this.updateFOV();
+    this.renderTiles();
+    this.turnSystem.phase = TurnPhase.PLAYER_INPUT;
+  }
+
+  /** Remove sprites and ECS entities for all entities marked Dead. */
+  private cleanupDeadEntities(): void {
+    const dead: number[] = [];
+    for (const [eid] of this.entitySprites) {
+      if (hasComponent(this.world, eid, Dead)) {
+        dead.push(eid);
+      }
+    }
+    for (const eid of dead) {
+      this.removeDeadEntity(eid);
     }
   }
 
@@ -444,8 +470,30 @@ export class GameScene extends Scene {
 
     const { dx, dy } = action;
 
+    // Check for bump-attack (non-wait moves only)
+    if (dx !== 0 || dy !== 0) {
+      const toX = Position.x[this.playerEid] + dx;
+      const toY = Position.y[this.playerEid] + dy;
+      const blockingEid = getBlockingEntity(toX, toY, this.playerEid, this.world);
+      if (blockingEid >= 0 && !hasComponent(this.world, blockingEid, Dead)) {
+        const myFaction = Faction.factionIndex[this.playerEid];
+        const theirFaction = Faction.factionIndex[blockingEid];
+        if (areHostile(myFaction, theirFaction)) {
+          performAttack(this.playerEid, blockingEid, this.world, this.eventQueue);
+          this.turnSystem.deductEnergy(this.playerEid, 100);
+          this.turnSystem.advance(this.world);
+          if (this.eventQueue.length > 0) {
+            this.eventQueue.drain(() => this.onPlayerAnimationDone());
+          } else {
+            this.onPlayerAnimationDone();
+          }
+          return;
+        }
+      }
+    }
+
     // Try to move
-    const result = tryMove(this.playerEid, dx, dy, this.tileMap, this.eventQueue);
+    const result = tryMove(this.playerEid, dx, dy, this.tileMap, this.eventQueue, this.world);
 
     // Deduct energy if action had a cost
     if (result.cost > 0) {
@@ -618,8 +666,10 @@ export class GameScene extends Scene {
       const ey = Position.y[eid];
       const visible = this.tileMap.getVisibility(ex, ey) === Visibility.VISIBLE;
 
-      // Mark dead in ECS immediately
-      addComponent(this.world, eid, Dead);
+      // Mark dead in ECS immediately (also done in commit callback for flush safety)
+      if (!hasComponent(this.world, eid, Dead)) {
+        addComponent(this.world, eid, Dead);
+      }
 
       if (!sprite || this.eventQueue.skipMode || !visible) {
         this.removeDeadEntity(eid);
@@ -627,7 +677,11 @@ export class GameScene extends Scene {
         return;
       }
 
-      // Scale-down + fade death animation
+      // Clear any lingering tint from hit_flash before death animation
+      sprite.setTint(0xffffff);
+      sprite.setAlpha(1);
+
+      // Scale-down death animation
       this.tweens.add({
         targets: sprite,
         scaleX: 0,
