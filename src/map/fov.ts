@@ -80,6 +80,26 @@ export function computeFOVTiles(
   return result;
 }
 
+/**
+ * Return a Set of flat tile indices visible from (ox, oy).
+ * Does NOT mutate map state. Used by AI for line-of-sight checks.
+ */
+export function getVisibleTiles(map: TileMap, ox: number, oy: number, radius: number): Set<number> {
+  const visible = new Set<number>();
+
+  const collect = (x: number, y: number) => {
+    if (map.inBounds(x, y)) visible.add(y * map.width + x);
+  };
+
+  collect(ox, oy);
+
+  for (const [xx, xy, yx, yy] of OCTANT_MULTIPLIERS) {
+    castLightCollect(map, ox, oy, radius, 1, 1.0, 0.0, xx, xy, yx, yy, collect);
+  }
+
+  return visible;
+}
+
 function castLightCollect(
   map: TileMap,
   ox: number,

@@ -8,11 +8,11 @@
  */
 import { hasComponent } from 'bitecs';
 import {
-  Position, FOV, AI, Health, Turn, Faction,
+  Position, FOV, AI, AIState, Health, Turn, Faction,
   CombatStats, Renderable, PlayerTag,
 } from '../ecs/components';
 import { getFactionId } from '../ecs/factions';
-import { bfsFullPath } from '../ecs/systems/aiSystem';
+import { getAIPath } from '../ecs/systems/aiSystem';
 import { computeFOVTiles } from '../map/fov';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
 
@@ -23,6 +23,7 @@ export interface OverlayGraphics {
   fillRect(x: number, y: number, w: number, h: number): void;
   lineStyle(width: number, color: number, alpha: number): void;
   strokeRect(x: number, y: number, w: number, h: number): void;
+  lineBetween(x1: number, y1: number, x2: number, y2: number): void;
 }
 
 // ── Inspector interface ──
@@ -42,7 +43,12 @@ export interface ComponentInspector {
 
 // ── Built-in inspectors ──
 
-const AI_STATES: Record<number, string> = { 0: 'Idle', 1: 'Wander', 2: 'Seek', 3: 'Searching' };
+const AI_STATES: Record<number, string> = {
+  [AIState.IDLE]: 'Idle',
+  [AIState.WANDER]: 'Wander',
+  [AIState.SEEK]: 'Seek',
+  [AIState.SEARCHING]: 'Searching',
+};
 
 const BUILTIN_INSPECTORS: ComponentInspector[] = [
   {
@@ -117,32 +123,31 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
   {
     name: 'AI',
     hasComponent: (w, eid) => hasComponent(w, eid, AI),
-    getFields: (w, eid, map) => {
-      const behaviour = AI.state[eid];
+    getFields: (_w, eid) => {
+      const state = AI.state[eid];
       const targetEid = AI.targetEid[eid];
+      const path = getAIPath(eid);
+      const lkx = AI.lastKnownX[eid];
+      const lky = AI.lastKnownY[eid];
       const fields: [string, string][] = [
-        ['State', AI_STATES[behaviour] ?? `Unknown(${behaviour})`],
+        ['State', AI_STATES[state] ?? `Unknown(${state})`],
         ['Target', targetEid >= 0 ? `EID ${targetEid}` : 'None'],
+        ['Path Len', String(path.length)],
       ];
-      if (targetEid >= 0) {
-        const path = bfsFullPath(
-          Position.x[eid], Position.y[eid],
-          Position.x[targetEid], Position.y[targetEid],
-          map, eid, w,
-        );
-        fields.push(['Path Len', String(path.length)]);
+      if (state === AIState.SEARCHING) {
+        fields.push(['Search Budget', String(AI.searchBudget[eid])]);
+        if (lkx >= 0 && lky >= 0) {
+          fields.push(['LKP', `(${lkx}, ${lky})`]);
+        }
       }
       return fields;
     },
     hasOverlay: true,
-    renderOverlay(gfx, world, eid, map) {
+    renderOverlay(gfx, _world, eid, map) {
+      const path = getAIPath(eid);
+      const state = AI.state[eid];
       const targetEid = AI.targetEid[eid];
-      if (targetEid < 0) return;
-      const path = bfsFullPath(
-        Position.x[eid], Position.y[eid],
-        Position.x[targetEid], Position.y[targetEid],
-        map, eid, world,
-      );
+
       // Path tiles (semi-transparent blue)
       if (path.length > 0) {
         gfx.fillStyle(0x3366ff, 0.25);
@@ -150,12 +155,35 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
           gfx.fillRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         }
       }
+
       // Target tile (red outline)
-      const tx = Position.x[targetEid];
-      const ty = Position.y[targetEid];
-      gfx.lineStyle(2, 0xff3333, 0.8);
-      gfx.strokeRect(tx * TILE_SIZE + 1, ty * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      if (targetEid >= 0) {
+        const tx = Position.x[targetEid];
+        const ty = Position.y[targetEid];
+        gfx.lineStyle(2, 0xff3333, 0.8);
+        gfx.strokeRect(tx * TILE_SIZE + 1, ty * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      }
+
+      // LKP tile (orange cross) — shown when searching
+      if (state === AIState.SEARCHING) {
+        const lkx = AI.lastKnownX[eid];
+        const lky = AI.lastKnownY[eid];
+        if (lkx >= 0 && lky >= 0) {
+          const px = lkx * TILE_SIZE;
+          const py = lky * TILE_SIZE;
+          gfx.lineStyle(2, 0xff8800, 0.8);
+          // Draw X cross
+          gfx.lineBetween(px + 4, py + 4, px + TILE_SIZE - 4, py + TILE_SIZE - 4);
+          gfx.lineBetween(px + TILE_SIZE - 4, py + 4, px + 4, py + TILE_SIZE - 4);
+        }
+      }
     },
+  },
+  {
+    name: 'Player',
+    hasComponent: (w, eid) => hasComponent(w, eid, PlayerTag),
+    getFields: () => [['Tag', 'Yes']],
+    hasOverlay: false,
   },
 ];
 

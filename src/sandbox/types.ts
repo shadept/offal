@@ -22,3 +22,10 @@ export interface EntityInspectData {
   isPlayer: boolean;
 }
 
+/** Data for one component section in the inspector. */
+export interface ComponentSectionData {
+  name: string;
+  fields: [string, string][];
+  hasOverlay: boolean;
+}
+

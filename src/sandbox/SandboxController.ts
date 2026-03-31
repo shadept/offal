@@ -15,7 +15,7 @@ import type { SpeciesData } from '../types';
 import type { TurnSystem } from '../ecs/systems/turnSystem';
 import type { VisualEventQueue } from '../visual/EventQueue';
 import { DebugOverlayRegistry } from './debugOverlays';
-import type { SandboxTool, TileInspectData, EntityInspectData } from './types';
+import type { SandboxTool, TileInspectData, EntityInspectData, ComponentSectionData } from './types';
 
 const VIS_NAMES: Record<number, string> = {
   [Visibility.UNSEEN]: 'Unseen',
@@ -200,6 +200,11 @@ export class SandboxController {
     Health.maxHp[eid] = hp;
     Faction.factionIndex[eid] = getFactionIndex(species.faction ?? 'creatures');
     CombatStats.attackDamage[eid] = species.attackDamage ?? 1;
+    AI.state[eid] = 0;
+    AI.targetEid[eid] = -1;
+    AI.lastKnownX[eid] = -1;
+    AI.lastKnownY[eid] = -1;
+    AI.searchBudget[eid] = 0;
 
     this.emit('entity_spawned', { eid, x, y, speciesId: species.id });
     return eid;
@@ -237,6 +242,16 @@ export class SandboxController {
 
   /** Expose world for debug registry. */
   getWorld(): object { return this.world; }
+
+  /** Get component section data for an entity (drives the inspector panel). */
+  getComponentSections(eid: number): ComponentSectionData[] {
+    const inspectors = this.debugRegistry.getFor(this.world, eid);
+    return inspectors.map(i => ({
+      name: i.name,
+      fields: i.getFields(this.world, eid, this.tileMap),
+      hasOverlay: i.hasOverlay,
+    }));
+  }
 
   // ═══════════════════════════════════════════════════════════
   // SIMULATION

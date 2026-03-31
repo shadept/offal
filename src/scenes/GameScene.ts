@@ -965,6 +965,11 @@ export class GameScene extends Scene {
       Health.maxHp[eid] = hp;
       Faction.factionIndex[eid] = getFactionIndex(species.faction ?? 'creatures');
       CombatStats.attackDamage[eid] = species.attackDamage ?? 1;
+      AI.state[eid] = 0;
+      AI.targetEid[eid] = -1;
+      AI.lastKnownX[eid] = -1;
+      AI.lastKnownY[eid] = -1;
+      AI.searchBudget[eid] = 0;
 
       this.createEntitySprite(eid, species.id);
     }
