@@ -1,7 +1,7 @@
 # OFFAL — Game Design Document
 *A roguelike about what you're made of*
 
-**Version**: 0.2
+**Version**: 0.3
 **Last updated**: 2026-03-31
 
 ---
@@ -24,531 +24,99 @@ The comedy is not forced. It emerges from a universe where everything is biomech
 
 ## Architecture: Data-Driven by Default
 
-Every piece of game content — materials, items, recipes, morphologies, enemies, physical properties — lives in **data files** ([JSON5](https://json5.org)). JSON5 is a superset of JSON that allows unquoted keys, comments, trailing commas, and single-quoted strings — same structure as JSON, less visual noise. The engine loads these files at boot and builds the world from them.
+All game content lives in **JSON5 data files**. The engine knows about systems; it does not know about content. No material, item, creature, or recipe is hardcoded.
 
-The engine knows about *systems*: physics, crafting, combat, grafting, ecology.  
-The engine does **not** know about *content*: it has no hardcoded reference to any specific material, item, or creature.
+Adding content = writing a data file. No code change required.
 
-This means:
-- Adding a new material = writing a JSON5 file, no code change
-- Adding a new recipe = writing a JSON5 file, no code change
-- The crafting system reasons over properties, not IDs
+The crafting system reasons over **properties and tags**, not item IDs.
+
+---
+
+## Core Principles
+
+These apply to every design decision:
+
+1. **Every advantage has risk.** Grafting, amputation, body transformation — all carry genuine danger. Preparation is rewarded. Impulse is punished.
+
+2. **The system is the designer.** Interactions emerge from rules, not from scripted outcomes. Comedy and drama are side effects of consistency.
+
+3. **Locomotion follows structure.** Locomotion type is derived from active slots — not declared. Lose your legs, graft serpent segments, and your body becomes something else.
+
+4. **Adaptation takes time.** A new body plan performs poorly until the nervous system catches up. Affinity grows through use, not through menus.
 
 ---
 
 ## Data Schemas
 
-### Material Definition
+The full schema reference lives in `docs/SCHEMAS.md`. This section describes the intent of each schema.
 
-Materials define the physical properties of any substance. Limbs, items, tiles, and environmental elements all reference a material.
+**Material** — physical properties of any substance: flammability, conductivity, hardness, mass, reactions. Referenced by limbs, items, tiles, and environmental features.
 
-```
-Material {
-  id: string                   // unique identifier
-  tags: string[]               // semantic categories (e.g. "organic", "metal", "alien")
-  
-  // Physical properties (0.0–1.0 unless noted)
-  flammability: float          // 0 = fireproof, 1 = ignites immediately
-  conductivity: float          // electrical conductivity
-  hardness: float              // resistance to cutting/impact
-  mass: "feather"|"light"|"medium"|"heavy"|"massive"
-  
-  // Reactive properties
-  reactsTo: {
-    fire?:         { effect: EffectId, threshold: float }
-    water?:        { effect: EffectId, threshold: float }
-    electricity?:  { effect: EffectId, threshold: float }
-    pressure?:     { effect: EffectId, threshold: float }
-  }
-  
-  // Optional
-  healsWith?: string[]         // tags of items that restore this material (e.g. ["food"] for organic)
-  byproductOnDestroy?: ItemTag // what drops when fully destroyed (e.g. "shard" for crystal)
-}
-```
+**Item** — a thing in the world: material, shape, size, tags. Interactions are not defined in the item — they emerge from its properties meeting the physics and crafting systems.
 
-### Item Definition
+**Recipe** — what can be made from what. Inputs match by tags/properties, not by ID. Multiple recipes can match the same inputs — the player chooses intent. Unrecognised combinations fall through to a fallback that always produces something.
 
-Items are compositions of materials and shape. They do not hardcode interactions — those emerge from their properties.
+**Blueprint** — a structural body archetype: slot layout and default occupants. Does not declare locomotion. Blueprints are inherited by species.
 
-```
-Item {
-  id: string
-  name: string
-  description: string
-  
-  material: MaterialId
-  shape: "rod"|"point"|"sheet"|"vessel"|"chunk"|"composite"
-  size: "tiny"|"small"|"medium"|"large"|"huge"
-  
-  tags: string[]               // e.g. ["weapon", "tool", "consumable", "limb", "fuel"]
-  
-  // Optional physical state
-  fluidCapacity?: float        // if vessel: how much it holds
-  contents?: FluidId           // current fluid (for potions, containers)
-  
-  // Optional functional properties
-  damage?: { type: DamageType, value: float }
-  protection?: { type: DamageType, value: float }
-  
-  // Potion identity (shuffled per run — see Alchemy section)
-  potionEffect?: EffectId      // only known after identification
-}
-```
+**Species** — extends a blueprint with biological specifics: materials, size range, slot overrides, additional slots. The player's starting options are species.
 
-### Recipe Definition
+**FunctionRule** — maps `limbType × slotRole` to capabilities. A tentacle in an arm slot attacks; in a leg slot it grips; in a back slot it flanks. Same limb, different function, different position.
 
-Recipes describe *what can be made* and *under what conditions*. They match against item properties, not IDs, except when specificity is required.
-
-```
-Recipe {
-  id: string
-  
-  inputs: InputSpec[]          // what must be combined
-  conditions?: ConditionSpec[] // optional constraints on the combination
-  output: OutputSpec           // what is produced
-  
-  // Optional
-  byproducts?: OutputSpec[]    // incidental outputs
-  tool?: ToolRequirement       // required tool quality (not a specific item)
-}
-
-InputSpec {
-  // Match by tags OR by id (use tags when possible)
-  tags?: string[]              // e.g. ["wood", "rod"] — matches any rod-shaped wooden item
-  id?: string                  // use only when a specific item is required
-  
-  quantity: { min: int, max?: int }
-  consumed: boolean            // true = item is destroyed in process
-}
-
-ConditionSpec {
-  // Constraints that affect which recipe fires when multiple could match
-  input[n].quantity: ComparisonExpr   // e.g. "< 4" on a specific input slot
-  input[n].material: MaterialId
-  environment: EnvironmentTag  // e.g. "fire_adjacent", "pressurized"
-}
-
-OutputSpec {
-  id?: string                  // known item
-  derive?: DeriveRule          // computed from inputs (see below)
-  quantity: int
-}
-
-DeriveRule {
-  // When the output is not a known item but is computed from inputs
-  // Used for the fallback tier and for composite outputs
-  nameFrom: "inputs"           // name generated from input descriptions
-  materialFrom: InputRef       // inherits material from a specific input
-  tagsFrom: InputRef[]         // inherits tags from inputs
-  sizeFrom: "largest_input"|"sum"
-}
-```
-
-### Body Hierarchy: Blueprint → Species → Individual
-
-Bodies are defined in three layers. Each layer inherits from the one above and can override or extend it.
-
----
-
-#### Blueprint
-
-A blueprint defines a structural archetype — the base slot arrangement and the default limbs that fill them. It is not a creature; it is a template that describes what a body *fundamentally is*.
-
-Locomotion is **not declared** in a blueprint. It is **derived** at runtime from the locomotion slots present and their default occupants. A blueprint with four leg slots and no arm slots will produce quadruped locomotion. A blueprint with a segmented torso chain and no leg slots will produce serpentine locomotion. A blueprint with N radially-symmetric slots will produce radial locomotion.
-
-```
-Blueprint {
-  id: string
-  name: string
-  description: string          // flavour — what kind of body this represents
-
-  slots: BodySlot[]            // the canonical slot layout for this archetype
-}
-
-BodySlot {
-  id: string                   // unique within this blueprint, e.g. "arm_left", "segment_3"
-  role: SlotRole               // "arm"|"leg"|"torso"|"head"|"back"|"segment"|"core"|"radial"
-
-  position: PositionHint       // "front"|"back"|"left"|"right"|"top"|"bottom"|"radial_N"
-                               // used for attack arc resolution and visual placement
-
-  accepts: LimbType[]          // which limb types can occupy this slot
-                               // e.g. ["arm", "tentacle", "claw"] or ["leg", "fin"]
-
-  default?: LimbRef            // default occupant; absent = slot starts empty (stump)
-  required: boolean            // if true, slot must be filled for entity to function
-}
-```
-
-Blueprints exist for archetypes like:
-- `serpentine` — segmented torso chain, elongated head slot, no leg slots by default
-- `biped_upright` — two leg slots, two arm slots, torso, head
-- `radial_5` — five radial slots arranged symmetrically, central core
-- `quadruped_low` — four leg slots, vestigial arm slots, torso, forward head
-- `amorphous` — single core slot, no fixed layout; absorbs rather than grafts
-
----
-
-#### Species
-
-A species inherits from a blueprint and defines the biological or mechanical specifics of a particular kind of creature. It can add slots, remove slots, override accepted limb types, and set default limb materials.
-
-```
-Species {
-  id: string
-  name: string
-  extends: BlueprintId         // which blueprint this species is based on
-
-  // Slot overrides — reference slot ids from the parent blueprint
-  slotOverrides?: {
-    [slotId: string]: Partial<BodySlot>
-  }
-
-  // Additional slots not in the blueprint
-  extraSlots?: BodySlot[]
-
-  // Default limb material for this species (can be overridden per slot)
-  defaultMaterial: MaterialId
-
-  // Size range for individuals of this species
-  size: { min: SizeClass, max: SizeClass }
-
-  // Spawn parameters
-  spawnTags: string[]          // used by the ecology system for biased generation
-}
-```
-
-Example: a "two-armed serpent" species would extend the `serpentine` blueprint, add two arm slots with `accepts: ["arm", "tentacle"]`, and set `defaultMaterial: "organic"`. Its locomotion is still derived as serpentine (from the base segment slots), but it now has arm capabilities.
-
----
-
-#### Individual
-
-An individual is a runtime instance of a species. It holds the actual slot state — which limbs are present, their current HP, their material (which may differ from default through grafting), and any status effects on each limb.
-
-Individuals are not defined in data files — they are generated procedurally from species definitions at spawn time, with variation applied:
-- Size sampled from species `size` range
-- Material may vary per limb within allowed types
-- HP initialised from limb definitions
-- Random slot variations (e.g. a limb missing from birth — stump from start)
-
-The player entity is also an Individual, initialised from a chosen species at run start.
-
----
-
-#### Locomotion Derivation
-
-Locomotion type is computed from the active locomotion slots of an individual at any point in time:
-
-| Condition | Derived locomotion |
-|---|---|
-| ≥2 functional leg slots, upright torso | biped |
-| ≥4 functional leg slots, low torso | quadruped |
-| ≥3 radial slots, no directional legs | radial |
-| ≥3 segment slots, no leg slots | serpentine |
-| core slot only, no structural slots | amorphous |
-| mixed (e.g. biped + grafted radial arm) | dominant + modifier |
-
-Locomotion affects movement speed, attack positioning, tile traversal rules, and animation selection. It is recalculated whenever a limb is gained or lost.
-
----
-
-#### Locomotion Affinity & Adaptation
-
-Changing locomotion type does not immediately grant full performance. Every individual tracks **affinity** per locomotion type — a value representing how well the nervous system (or equivalent) has adapted to that body configuration.
-
-```
-LocomotionAffinity {
-  type: LocomotionId
-  value: float                 // 0.0 (no affinity) → 1.0 (fully adapted)
-}
-```
-
-**How affinity works:**
-
-- At birth/spawn: affinity for native locomotion type starts at `1.0`. All others start at `0.0`.
-- When derived locomotion changes (e.g. biped loses both legs, grafts serpent segments): the new type becomes dominant, but affinity starts wherever it currently is — typically `0.0` for a first transition.
-- Affinity grows through **active use** — each movement action, combat action, and interaction performed with the new locomotion increments the relevant affinity. It is not time-based; it is action-based.
-- Previous affinities decay slowly but do not reset to zero — a biped who briefly went serpentine and returns will re-adapt faster.
-- Affinity is capped at `1.0`. Natives start there and stay there unless their body plan changes.
-
-**What affinity penalises:**
-
-| Affinity | Effect |
-|---|---|
-| 1.0 | No penalty. Full native performance. |
-| 0.5–0.99 | Minor: slight speed reduction, occasional action delay |
-| 0.2–0.49 | Moderate: slower movement, awkward attack timing, some actions cost extra turns |
-| 0.0–0.19 | Severe: stumbling movement, significantly reduced speed, combat unreliable |
-
-Affinity affects **performance only** — not capability. A biped who grafts serpent segments can still constrict on turn 1; they're just slow and clumsy about it until they adapt.
-
-**The player feels this as discovery, not punishment.** The penalty is heaviest immediately after a radical body change — which is also when the player is most disoriented and experimenting. As they use the new body, it improves. The system rewards commitment to a chosen body plan without locking out experimentation.
-
-### Limb Definition
-
-Limbs are items with the "limb" tag and a morphology attachment point.
-
-```
-LimbDefinition {
-  type: LimbType               // "arm"|"leg"|"tentacle"|"claw"|"jaw"|"fin"|...
-  material: MaterialId
-  
-  hp: int                      // this limb's individual HP pool
-  size: SizeClass
-  
-  // Function is NOT defined here — it is resolved by the slot it occupies
-  // See: Function Resolution
-}
-```
-
-### Function Resolution
-
-The function of a limb is determined by its **type × slot role × locomotion**.
-
-The engine resolves this via a lookup table defined in data, not in code:
-
-```
-FunctionRule {
-  limbType: LimbType
-  slotRole: SlotRole
-  locomotion: LocomotionType   // optional — if absent, applies to all
-  
-  grants: Capability[]         // what the entity can now do
-  modifies: StatModifier[]     // changes to speed, carry, etc.
-}
-```
-
-Examples of what this table expresses (in data, not here as canonical):
-- tentacle in arm role → grants reach_attack, grants grab
-- tentacle in leg role → grants wall_grip, modifies speed
-- tentacle in back role → grants flank_attack
-- claw in arm role → grants slash_attack, grants climb
-- jaw in head role → grants bite_attack
-- additional arm → grants equipment_slot
-
-The table is exhaustive and lives in `data/function-rules.json5`. The code only reads the table.
+**PhysicsRule** — defines how physical states propagate. Fire spreads to flammables, water extinguishes fire, electricity propagates through conductors. The physics system runs these rules; it does not know "fire" specifically.
 
 ---
 
 ## Systems
 
+### Body System
+
+Entities have modular bodies. Each slot holds a limb with its own HP and material. Losing a limb opens a stump. Stumps can be grafted.
+
+**Limb loss** — whether from combat or voluntary amputation — causes bleeding. Bleeding stacks and kills if untreated. There is no safe operation.
+
+**Grafting** costs turns. An actively bleeding wound cannot receive a graft until treated. Organic limbs seal wounds; non-organic limbs do not. Mismatched materials may reject.
+
+**Locomotion** is derived from active slots at all times. Radical body changes produce locomotion affinity penalties that fade with use — the penalty is worst when the player is most vulnerable, and disappears as they commit to the new form.
+
 ### Physics System
 
-Processes propagation of physical states across tiles and entities.
-
-State propagation is defined in data (`data/physics-rules.json5`):
-```
-PhysicsRule {
-  trigger: PhysicalState       // e.g. "on_fire"
-  propagatesTo: {
-    condition: string          // e.g. "adjacent AND target.material.flammability > 0.5"
-    effect: EffectId
-    delay: int                 // turns before propagation
-  }
-  consumedBy: PhysicalState[]  // e.g. "on_fire" consumed by "wet"
-  depletes: ResourceId?        // e.g. "on_fire" depletes "oxygen" in enclosed spaces
-}
-```
-
-The physics system does not know about fire, water, or electricity specifically. It processes PhysicsRules.
-
----
+Physical states (fire, wet, charged, pressurised) propagate according to data-defined rules. Limb materials participate in this system — a wooden arm burns, a metal arm conducts, a crystal arm shatters into shards.
 
 ### Crafting System
 
-The crafting system has two tiers:
-
-**Tier 1 — Recipe matching**
-1. Player initiates combine action with N items
-2. System evaluates all items' tags, materials, shapes, sizes
-3. Finds all recipes where InputSpecs match the provided items
-4. If exactly one recipe matches: execute it
-5. If multiple match: present player with options (ambiguity is intentional — same inputs, different intent)
-6. If zero match: fall through to Tier 2
-
-**Tier 2 — Fallback**  
-When no recipe matches:
-- Short-term: produce a "crude composite" item — tags are union of inputs, name is "crude [dominant material] [dominant shape]", stats are averaged. Always produces *something*.
-- Long-term (Phase 6+): pass inputs to local LLM for description + sprite generation. Result is cached and registered as a new item definition for the run.
-
-The crafting system is **not** the arbiter of what's logical — the data is. The system only resolves rules.
-
----
+Two tiers:
+- **Known recipes**: matched by input properties. Ambiguous combinations offer a choice.
+- **Fallback**: unrecognised combinations always produce something — a crude composite. In Phase 6+, a local LLM names and describes the result; a sprite is synthesised procedurally. Graceful degradation if unavailable.
 
 ### Alchemy System
 
-Potions are items with the `consumable` and `potion` tags and an unknown `potionEffect`.
-
-At run start: all potion effects are shuffled and assigned to visual appearances. The mapping is not revealed to the player.
-
-Discovery methods:
-- **Drink**: effect fires immediately, identity revealed
-- **Dip item**: item gains an effect derived from the potion's properties. If the potion effect and item material are incompatible, nothing happens (safe failure)
-- **Combine**: two potions combined produce a result computed by the physics/crafting system treating fluids as materials with their own tags
-
-Potion effects are defined in `data/potion-effects.json5` — they are not hardcoded.
-
----
-
-### Body System
-
-Manages the state of all modular bodies.
-
-On entity creation: blueprint/species loaded, slots populated from LimbDefinitions, capabilities computed via FunctionRule lookup, locomotion affinity initialised.
-
----
-
-#### Limb Loss
-
-When a limb's HP reaches 0 (combat damage) or is voluntarily severed:
-
-1. Limb enters `severed` state and drops as a floor item
-2. Slot becomes a `stump` — open for grafting
-3. Capabilities from that slot are removed
-4. Locomotion type is re-derived from remaining slots
-5. **Bleeding begins immediately**
-
-Bleeding severity is determined by:
-
-```
-BleedSeverity = limb.size × limb.material.bleedMultiplier × severanceType
-```
-
-Where `severanceType`:
-- `combat_destruction` — lowest severity (wound is cauterised by the attack energy)
-- `voluntary_cut` — moderate severity (clean cut, significant blood loss)
-- `rip/tear` — highest severity (jagged wound, maximum blood loss)
-
-Bleeding is a **stacking DoT** applied to the torso (or core). Each stacking bleed reduces HP per turn. Multiple simultaneous bleeds compound.
-
-Untreated bleeding will kill. This is intentional — voluntary amputation for grafting purposes is a real risk that requires preparation or acceptance of consequences.
-
----
-
-#### Wound Treatment
-
-Bleeding can be reduced or stopped by:
-
-- **Bandage/cloth applied to stump** — reduces bleed severity, does not heal HP
-- **Cauterisation** (apply fire source to stump) — stops bleeding immediately, but applies a burn debuff and destroys the stump (reduces graft compatibility temporarily)
-- **Medical item** — stops bleeding and begins HP recovery (rare, high value)
-- **Organic limb grafted to stump** — a successfully grafted organic limb seals the wound and stops bleeding. Non-organic grafts do not seal wounds on their own.
-
-Treatment is not automatic. The player must have the right items and take the action.
-
----
-
-#### Voluntary Amputation
-
-The player can choose to sever their own limbs using a bladed item. This is always a deliberate action with a confirmation prompt.
-
-Reasons a player might do this:
-- Remove a burning/infected/cursed limb before damage spreads
-- Create a stump to graft a better limb
-- Reduce mass for movement purposes (e.g. in low-gravity sections)
-
-The action triggers bleeding immediately at `voluntary_cut` severity. The severed limb drops as a floor item. The player must manage the wound before proceeding.
-
-**There is no "safe" amputation.** Every body modification carries risk. The game rewards preparation and punishes impulse.
-
----
-
-#### Grafting
-
-To graft a limb:
-1. Player has a `stump` slot and a compatible limb item in inventory
-2. Player initiates graft action (costs turns — not instantaneous)
-3. Compatibility checked: `slot.accepts` must include `limb.type`; size must be within one tier of slot's expected size (oversized or undersized grafts are possible but penalised)
-4. If the stump was from a voluntary cut: active bleeding must be below a threshold, or the graft action will fail (you cannot attach a limb to a wound that is actively haemorrhaging heavily)
-5. On success: limb attached, capabilities added per FunctionRule, locomotion re-derived, affinity updated
-6. Material of new limb becomes part of the entity — physics system tracks it
-
-**Rejection**: organic limbs grafted to non-organic stumps (or vice versa) have a rejection chance defined in data. Rejection causes the limb to detach after N turns with additional bleeding. Suppressed by certain potion effects or medical items.
-
----
+Potions have unknown effects per run (shuffled at start). Discovered by drinking, dipping items, or combining. Effects defined in data.
 
 ### Adaptive Ecology System
 
-Tracks a **combat profile** for the current run: a vector of tagged action frequencies (e.g., `{fire_damage: 12, slash_damage: 8, head_target: 5}`).
-
-Enemy generation in unexplored rooms samples this profile and biases toward entities whose properties counter the dominant tags.
-
-Bias rules are defined in `data/ecology-rules.json5`:
-```
-EcologyRule {
-  playerProfile: { tag: string, threshold: int }  // "if player used fire_damage > 10"
-  spawnerBias: { tag: string, weight: float }      // "increase weight of fire_resistant enemies by 2x"
-}
-```
-
-The system does not generate new enemy types — it adjusts weights in the existing spawn table. Counter-evolution is gradual, not sudden.
+The game tracks how the player fights. Enemies in unexplored rooms are biased toward countering the dominant pattern. Fire spammer → fire-resistant variants appear. Head-targeter → headless variants appear. Gradual, not sudden. Defined in data rules.
 
 ---
 
 ## Procedural Generation
 
-Ships are generated per run. Each ship has:
-- A **hull type** (freighter, research vessel, colony ship) — determines tile palette and room density
-- N **decks** — each deck is a connected graph of rooms
-- A **boss room** at the bottom of each deck
-
-Room generation uses a BSP (Binary Space Partition) algorithm with connection corridors. Room contents (enemies, items, environmental features) are populated from weighted tables biased by deck depth.
-
-All generation parameters live in `data/generation/`.
+Ships are generated per run from hull type templates. Each ship has multiple decks; each deck ends in a boss. Room contents are weighted by depth.
 
 ---
 
 ## Meta Progression
 
-Persistent across runs (stored in browser localStorage):
-
-- **Unlocks**: new morphology types, materials, ship hull types, potion effect pool size
-- **Codex**: discovered item/material/creature entries (read-only encyclopedia)
-- **Run history**: cause of death, depth reached, notable events
-
-Unlocks are earned by satisfying conditions defined in `data/unlocks.json5`. No XP, no level-up screens — conditions are things like "reach deck 3", "graft a non-organic limb", "die to your own fire".
+Persistent unlocks (new blueprints, materials, hull types) earned by in-run conditions. Codex of discovered entries. Run history. No XP.
 
 ---
 
-## AI-Assisted Generation (Phase 6+)
+## Technical
 
-When Tier 2 crafting fallback fires and the platform supports it:
-
-1. Item properties (material tags, shape, size, input descriptions) are passed to a quantized local LLM (target: <2GB VRAM, WebGPU)
-2. LLM returns: item name, short description, dominant use tag
-3. Sprite is generated procedurally from the use tag + material (pixel art synthesis, no diffusion model)
-4. Result is registered as a run-local item definition and cached
-
-Graceful degradation: if LLM unavailable, Tier 2 produces the crude composite without description. Player never blocked.
+**Stack**: TypeScript + Phaser 3 + bitECS + Vite  
+**Data format**: JSON5  
+**Assets**: Kenney.nl CC0 as base  
+**Sprites**: modular per limb, composed at runtime for hybrid bodies
 
 ---
 
-## Visual & Technical
-
-**Perspective**: 2D top-down  
-**Rendering**: Phaser 3  
-**ECS**: bitECS  
-**Build**: Vite + TypeScript  
-**Assets**: Kenney.nl (CC0) as base  
-
-**Sprite system**: Each limb is an independent sprite layer. Hybrid bodies compose from active limb sprites. Animations are defined per limb type, not per full-body configuration.
-
----
-
-## What's Original Here
-
-1. **Property-matched recipes** — recipes match against item properties and tags, not specific IDs. The system reasons about materials, not about named objects.
-
-2. **Position-dependent limb function via data table** — the same limb type does different things depending on where it's grafted. Defined entirely in data, not in code.
-
-3. **Limb material = entity physics** — the same physics system that affects the world applies to the entity's body. No special cases.
-
-4. **Adaptive ecology** — enemy spawn bias counter-evolves to the player's combat profile. Defined in data rules, not scripted.
-
-5. **Two-tier crafting with graceful fallback** — known recipes for consistency, LLM fallback for infinite possibility.
-
----
-
-*GDD v0.2 — living document*
+*GDD v0.3 — living document. Details live in SCHEMAS.md and BACKLOG.md.*
