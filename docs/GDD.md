@@ -100,7 +100,59 @@ The game tracks how the player fights. Enemies in unexplored rooms are biased to
 
 ## Procedural Generation
 
-Ships are generated per run from hull type templates. Each ship has multiple decks; each deck ends in a boss. Room contents are weighted by depth.
+### Ships
+
+Ships are generated per run. **Size scales with progression** — early runs take place in small vessels (shuttles, corvettes: 2–3 decks, tight corridors) and later runs in larger ones (frigates, research vessels, colony ships: many decks, complex layouts). Ship size is the primary difficulty axis — not a number, but a consequence of scale and population density.
+
+Each ship has a **hull type** that determines:
+- Tile palette and visual identity
+- Room function distribution (a research vessel has labs and specimen holds; a freighter has cargo bays and crew quarters)
+- Age/abandonment level (recent = active systems and survivors; ancient = overgrown with creatures, systems decayed)
+
+Each ship has multiple **decks**. Each deck ends in a significant room (boss encounter, critical system, or high-value cache).
+
+### Room Generation
+
+Rooms are **pre-defined by function** and placed by a constrained layout algorithm (WFC or BSP with semantic rules). The layout respects ship logic:
+- Bridge at the top
+- Reactor and engineering at the bottom
+- Crew quarters and medical mid-ship
+- Cargo bays in the lower hull
+- Specimen holds adjacent to research labs
+
+Each room function has a pool of possible layouts, loot tables, and population tables. The algorithm selects and connects them. The result feels like a real ship, not a random dungeon.
+
+### Population
+
+**No faction exists because of the player.** Every entity aboard has its own reason to be there. The player is one more variable in an existing situation.
+
+#### Factions
+
+| Faction | Behaviour | Notes |
+|---|---|---|
+| **Security systems** | Attack any unauthorised entity | Player is unauthorised by default. Coordinated in groups via internal comms. |
+| **Pirates/scavengers** | Loot the ship, avoid danger | Social: alone in small ships, groups in large ones. React to noise, call for backup, may flee from unknown creatures. |
+| **Colonising creatures** | Territorial, attack nearest threat | Banded or solitary by species. Ignore faction distinctions — attack whatever is closest. |
+| **Captive animals** | Passive in containment, chaotic if freed | Herbivores panic; predators treat everything as prey. A freed predator is a problem for everyone. |
+| **Survivors** | Frightened, erratic | May help, may attack, may scream and attract everything nearby. |
+| **Environmental hazards** | Not creatures — zones | Gas clouds, irradiated sections, pressurised vents. Affect all entities equally. |
+
+Faction relations are defined in data. Default relations create emergent conflict: security attacks pirates attacks creatures attacks everyone. The player can exploit these conflicts intentionally.
+
+#### Perception System
+
+Entities perceive the world through data-defined sense profiles — not hardcoded detection logic:
+
+- **Vision**: range and angle
+- **Hearing**: detection radius and volume threshold
+- **Smell**: detects blood, organics, specific materials at range
+- **Fear triggers**: tags that cause flee behaviour (e.g. `fire`, `large_creature`, `loud_noise`)
+
+Sound and smell propagate through the map like physical states — attenuated by walls, amplified by corridors. A loud fight wakes the next room. Bleeding leaves a trail. Fire causes fear responses in creatures that have it defined.
+
+Entities communicate within factions: a security robot that spots the player can alert others in range. Pirates investigate sounds before charging in.
+
+All of this is data. The AI system runs perception and faction rules; it does not know about "pirate" or "robot" specifically.
 
 ---
 
