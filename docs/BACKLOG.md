@@ -32,8 +32,8 @@
     physics-rules.json5
   ```
 - [x] ✅ Dev server running in browser (`npm run dev`)
-- [ ] 🟡 JSON5 data loader (reads files from `data/`, typed)
-- [ ] 🟡 Basic tileset loaded (Kenney sci-fi tiles)
+- [x] ✅ JSON5 data loader (reads files from `data/`, typed)
+- [x] ✅ Basic tileset loaded (generated procedurally — Kenney assets deferred to Phase 9)
 
 **Exit criteria**: `npm run dev` opens browser, shows a grid of tiles.
 
@@ -43,21 +43,21 @@
 *Goal: player moves on a tile map, camera follows.*
 
 ### Tile Map
-- [ ] 🔴 Tile map component (grid of tile IDs)
-- [ ] 🔴 Tile renderer (Phaser tilemap or manual sprite grid)
-- [ ] 🔴 Camera follows player entity
-- [ ] 🔴 Phaser game loop runs at 60fps — game logic updates on turn tick only, render updates every frame
-- [ ] 🔴 Turn state machine: `PLAYER_INPUT → PROCESSING → ANIMATION → ENEMY_TURN → ANIMATION → PLAYER_INPUT`
-- [ ] 🔴 Visual event queue: array of `{type, targets, config, onComplete?}`. Logic pushes events; visual layer drains them sequentially via `onComplete` callbacks
-- [ ] 🔴 **Logic is tentative until animation completes**: damage and effects apply at the moment their visual event resolves, not when they are queued. This matches player perception — damage happens when the projectile arrives, not when the turn was calculated.
-- [ ] 🔴 Skip/accelerate: player can hold a key to drain visual queue instantly (for fast play)
-- [ ] 🟡 Basic tile types: floor, wall, door (open/closed)
-- [ ] 🟡 Field of view — tiles revealed by line-of-sight
-- [ ] 🟡 Ambient visual layer: Phaser particle emitters and loops run outside the turn system — fire, sparks, idle animations never stop
+- [x] ✅ Tile map component (grid of tile IDs)
+- [x] ✅ Tile renderer (manual sprite grid with generated textures)
+- [x] ✅ Camera follows player entity
+- [x] ✅ Phaser game loop runs at 60fps — game logic updates on turn tick only, render updates every frame
+- [x] ✅ Turn state machine: `PLAYER_INPUT → PROCESSING → ANIMATION → ENEMY_TURN → ANIMATION → PLAYER_INPUT`
+- [x] ✅ Visual event queue: array of `{type, targets, config, onComplete?}`. Logic pushes events; visual layer drains them sequentially via `onComplete` callbacks
+- [x] ✅ **Logic is tentative until animation completes**: damage and effects apply at the moment their visual event resolves, not when they are queued. This matches player perception — damage happens when the projectile arrives, not when the turn was calculated.
+- [x] ✅ Skip/accelerate: player can hold Shift to drain visual queue instantly (for fast play)
+- [x] ✅ Basic tile types: floor, wall, door (open/closed)
+- [x] ✅ Field of view — recursive shadowcasting, tiles revealed by line-of-sight
+- [x] ✅ Ambient visual layer: spark particle emitters at wall boundaries run outside the turn system
 
 ### Visual Event Types (implement as needed per phase)
-- [ ] 🔴 `move`: entity tween A→B via `this.tweens.add`, `onComplete` advances queue (Phase 1)
-- [ ] 🔴 `idle`: looping sprite animation, never gated by turn state (Phase 1)
+- [x] ✅ `move`: entity tween A→B via `this.tweens.add`, `onComplete` advances queue (Phase 1)
+- [x] ✅ `idle`: player idle bob animation, never gated by turn state (Phase 1)
 - [ ] 🟡 `projectile`: sprite flies origin→target, `onComplete` applies damage and advances queue (Phase 4)
 - [ ] 🟡 `fire_spread`: ignition particle burst on newly burning tile (Phase 3)
 - [ ] 🟡 `explosion`: particles + `this.cameras.main.shake()` + sound (Phase 3)
@@ -68,16 +68,16 @@
 - [ ] ⚪ `screen_shake`: `cameras.main.shake(duration, intensity)` (Phase 4)
 
 ### ECS Foundation
-- [ ] 🔴 Position component
-- [ ] 🔴 Renderable component (sprite ID, layer)
-- [ ] 🔴 Turn component (time-energy value)
-- [ ] 🔴 Turn scheduler system (entity with most time acts next)
+- [x] ✅ Position component
+- [x] ✅ Renderable component (sprite ID, layer)
+- [x] ✅ Turn component (time-energy value)
+- [x] ✅ Turn scheduler system (entity with most time acts next)
 
 ### Player
-- [ ] 🔴 Player entity spawns on map
-- [ ] 🔴 WASD/arrow movement (one tile per turn)
-- [ ] 🔴 Bump into wall = no move, turn consumed
-- [ ] 🟡 Basic HUD: position, turn count
+- [x] ✅ Player entity spawns on map
+- [x] ✅ WASD/arrow movement (one tile per turn)
+- [x] ✅ Bump into wall = no move, turn consumed; bump into door = door opens
+- [x] ✅ Basic HUD: position, turn count, phase indicator, controls help
 
 **Exit criteria**: player moves around a hand-crafted room, camera follows, walls block movement.
 
