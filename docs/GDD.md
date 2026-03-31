@@ -145,37 +145,112 @@ DeriveRule {
 }
 ```
 
-### Morphology Definition
+### Body Hierarchy: Blueprint → Species → Individual
 
-Morphologies define the body plan of any entity. They are not creature types — they are structural templates. A creature definition references a morphology.
+Bodies are defined in three layers. Each layer inherits from the one above and can override or extend it.
+
+---
+
+#### Blueprint
+
+A blueprint defines a structural archetype — the base slot arrangement and the default limbs that fill them. It is not a creature; it is a template that describes what a body *fundamentally is*.
+
+Locomotion is **not declared** in a blueprint. It is **derived** at runtime from the locomotion slots present and their default occupants. A blueprint with four leg slots and no arm slots will produce quadruped locomotion. A blueprint with a segmented torso chain and no leg slots will produce serpentine locomotion. A blueprint with N radially-symmetric slots will produce radial locomotion.
 
 ```
-Morphology {
+Blueprint {
   id: string
   name: string
-  
-  slots: BodySlot[]
-  locomotion: LocomotionType   // "biped"|"quadruped"|"radial"|"serpentine"|"blob"
-  
-  // Derived from slots at load time — not manually defined
-  // attackCapability: computed
-  // carryCapacity: computed
+  description: string          // flavour — what kind of body this represents
+
+  slots: BodySlot[]            // the canonical slot layout for this archetype
 }
 
 BodySlot {
-  id: string                   // e.g. "arm_left", "leg_front_right", "back_1"
-  role: SlotRole               // "arm"|"leg"|"torso"|"head"|"back"|"core"
-  
-  // What can be placed here
-  accepts: LimbType[]          // e.g. ["arm", "tentacle", "claw"]
-  
-  // Default occupant (can be empty = stump from start)
-  default?: LimbDefinition
-  
-  // Position affects function resolution
-  position: "front"|"back"|"left"|"right"|"top"|"radial"
+  id: string                   // unique within this blueprint, e.g. "arm_left", "segment_3"
+  role: SlotRole               // "arm"|"leg"|"torso"|"head"|"back"|"segment"|"core"|"radial"
+
+  position: PositionHint       // "front"|"back"|"left"|"right"|"top"|"bottom"|"radial_N"
+                               // used for attack arc resolution and visual placement
+
+  accepts: LimbType[]          // which limb types can occupy this slot
+                               // e.g. ["arm", "tentacle", "claw"] or ["leg", "fin"]
+
+  default?: LimbRef            // default occupant; absent = slot starts empty (stump)
+  required: boolean            // if true, slot must be filled for entity to function
 }
 ```
+
+Blueprints exist for archetypes like:
+- `serpentine` — segmented torso chain, elongated head slot, no leg slots by default
+- `biped_upright` — two leg slots, two arm slots, torso, head
+- `radial_5` — five radial slots arranged symmetrically, central core
+- `quadruped_low` — four leg slots, vestigial arm slots, torso, forward head
+- `amorphous` — single core slot, no fixed layout; absorbs rather than grafts
+
+---
+
+#### Species
+
+A species inherits from a blueprint and defines the biological or mechanical specifics of a particular kind of creature. It can add slots, remove slots, override accepted limb types, and set default limb materials.
+
+```
+Species {
+  id: string
+  name: string
+  extends: BlueprintId         // which blueprint this species is based on
+
+  // Slot overrides — reference slot ids from the parent blueprint
+  slotOverrides?: {
+    [slotId: string]: Partial<BodySlot>
+  }
+
+  // Additional slots not in the blueprint
+  extraSlots?: BodySlot[]
+
+  // Default limb material for this species (can be overridden per slot)
+  defaultMaterial: MaterialId
+
+  // Size range for individuals of this species
+  size: { min: SizeClass, max: SizeClass }
+
+  // Spawn parameters
+  spawnTags: string[]          // used by the ecology system for biased generation
+}
+```
+
+Example: a "two-armed serpent" species would extend the `serpentine` blueprint, add two arm slots with `accepts: ["arm", "tentacle"]`, and set `defaultMaterial: "organic"`. Its locomotion is still derived as serpentine (from the base segment slots), but it now has arm capabilities.
+
+---
+
+#### Individual
+
+An individual is a runtime instance of a species. It holds the actual slot state — which limbs are present, their current HP, their material (which may differ from default through grafting), and any status effects on each limb.
+
+Individuals are not defined in data files — they are generated procedurally from species definitions at spawn time, with variation applied:
+- Size sampled from species `size` range
+- Material may vary per limb within allowed types
+- HP initialised from limb definitions
+- Random slot variations (e.g. a limb missing from birth — stump from start)
+
+The player entity is also an Individual, initialised from a chosen species at run start.
+
+---
+
+#### Locomotion Derivation
+
+Locomotion type is computed from the active locomotion slots of an individual at any point in time:
+
+| Condition | Derived locomotion |
+|---|---|
+| ≥2 functional leg slots, upright torso | biped |
+| ≥4 functional leg slots, low torso | quadruped |
+| ≥3 radial slots, no directional legs | radial |
+| ≥3 segment slots, no leg slots | serpentine |
+| core slot only, no structural slots | amorphous |
+| mixed (e.g. biped + grafted radial arm) | dominant + modifier |
+
+Locomotion affects movement speed, attack positioning, tile traversal rules, and animation selection. It is recalculated whenever a limb is gained or lost.
 
 ### Limb Definition
 
