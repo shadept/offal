@@ -291,7 +291,13 @@ Occasionally, the mission roster includes a return to a previously visited ship:
 - **"Cleanup"** — a previous clone caused a situation that has since escalated; go fix it
 - **"Investigation"** — a previous clone's death telemetry flagged something unusual; find out what killed them
 
-Returning to a ship where a previous clone died is narratively significant. Their body may still be there. They may have left notes or half-finished crafting. What killed them may still be present — possibly evolved or repositioned.
+Returning to a ship where a previous run ended is narratively significant. **The body there is yours.** Not a generic clone — the exact character you played, in the state they died, wearing the equipment you chose, bearing the grafts you made. Their severed limbs may be on the floor nearby. Their half-finished crafting still on the workbench.
+
+This is the moment the player understands the game has memory. And it raises a question the game does not answer directly: if I'm here now, and I'm also here dead... what does the corporation know that I don't?
+
+That question is the narrative thread. The player formulates it themselves.
+
+Mechanically: the previous character's body is lootable. You can recover equipment, items, even graft your own previous limbs onto your current body. The state is exact — whatever was in their inventory, wherever they fell.
 
 #### The Hidden Thread
 
