@@ -80,11 +80,46 @@ The full schema reference lives in `docs/SCHEMAS.md`. This section describes the
 
 Entities have modular bodies. Each slot holds a limb with its own HP and material. Losing a limb opens a stump. Stumps can be grafted.
 
-**Limb loss** — whether from combat or voluntary amputation — causes bleeding. Bleeding stacks and kills if untreated. There is no safe operation.
+#### Status Effects (Hediffs)
 
-**Grafting** costs turns. An actively bleeding wound cannot receive a graft until treated. Organic limbs seal wounds; non-organic limbs do not. Mismatched materials may reject.
+Any condition that modifies the normal state of a body — wound, disease, graft, environmental effect — is a **StatusEffect** (borrowing RimWorld's Hediff concept). StatusEffects attach to a specific slot or to the entity globally, and modify capabilities or stats for as long as they're active.
 
-**Locomotion** is derived from active slots at all times. Radical body changes produce locomotion affinity penalties that fade with use — the penalty is worst when the player is most vulnerable, and disappears as they commit to the new form.
+Examples: `bleeding` (on stump, stacks), `burning` (on limb, spreads), `oxidising` (on metal limb, progressive), `infected` (on wound, races against immunity), `rejected` (on graft, timer), `adapted` (on locomotion type, grows with use).
+
+This unifies injuries, diseases, environmental effects, and graft states into one system. The engine processes StatusEffects; it does not know their specific names.
+
+#### Body Capacities
+
+Each entity has **global capacities** derived from its active limbs and their states:
+
+- **Mobility** — derived from leg slots; reduced by leg loss or injury
+- **Manipulation** — derived from arm slots; reduced by arm loss
+- **Consciousness** — derived from head slot; affected by pain, blood loss
+- **Structural Integrity** — derived from torso/core; reaches zero = death
+
+Capacities are not stored — they are computed each turn from slot states and active StatusEffects. Damage to a limb reduces its contribution to the relevant capacity proportionally.
+
+#### Limb Loss & Bleeding
+
+Losing a limb (combat or voluntary) applies a `bleeding` StatusEffect to the stump. Bleeding stacks, reduces Consciousness, and kills if untreated. There is no safe operation.
+
+Treatment options: bandage (reduces severity), cauterise (stops bleed, damages stump), medical item (stops + heals), organic graft (seals wound on attachment). Non-organic grafts do not seal.
+
+#### Infection
+
+Untreated wounds have a chance to become `infected`. Infection runs a race: **severity** increases over time, **immunity** increases based on entity health. If immunity reaches threshold first — survival. If severity reaches critical first — the wound becomes critical and spreads to adjacent slots.
+
+Medical items accelerate immunity. Certain potion effects suppress infection. Cauterisation prevents infection at the cost of stump quality.
+
+#### Grafting
+
+Costs turns. Requires: compatible slot, manageable bleed level, compatible size. Mismatched materials (organic onto non-organic stump) apply a `rejection` StatusEffect — a timer that detaches the limb with additional bleeding if not suppressed by treatment.
+
+**Grafting is never free.** Every body modification has a cost in time, risk, and resources.
+
+#### Locomotion
+
+Derived from active slots at all times. Radical changes apply `locomotion_unfamiliar` StatusEffect — a penalty to speed and action costs that fades as the entity uses the new body plan (action-based, not time-based).
 
 ### Physics System
 
