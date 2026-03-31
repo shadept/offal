@@ -11,11 +11,11 @@
 ## Phase 0 — Project Scaffold
 *Goal: browser opens, black screen with a tile rendered.*
 
-- [ ] 🔴 Init Vite + TypeScript project
-- [ ] 🔴 Install and configure Phaser 4
-- [ ] 🔴 Install bitECS
-- [ ] 🔴 Install json5 parser
-- [ ] 🔴 Basic project structure:
+- [x] ✅ Init Vite + TypeScript project
+- [x] ✅ Install and configure Phaser 4
+- [x] ✅ Install bitECS
+- [x] ✅ Install json5 parser
+- [x] ✅ Basic project structure:
   ```
   src/
     ecs/          # components, systems
@@ -31,7 +31,7 @@
     function-rules.json5
     physics-rules.json5
   ```
-- [ ] 🔴 Dev server running in browser (`npm run dev`)
+- [x] ✅ Dev server running in browser (`npm run dev`)
 - [ ] 🟡 JSON5 data loader (reads files from `data/`, typed)
 - [ ] 🟡 Basic tileset loaded (Kenney sci-fi tiles)
 

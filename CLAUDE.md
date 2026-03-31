@@ -9,7 +9,7 @@ npm install
 npm run dev      # Vite dev server
 ```
 
-No src/ code exists yet — project is in pre-Phase 0 (design docs only).
+Phase 0 scaffold is in place — Vite + Phaser 4 + bitECS + TypeScript.
 
 ## Project Structure
 
@@ -20,13 +20,13 @@ docs/
   SCHEMAS.md      # JSON5 data file schemas (materials, items, recipes, blueprints, species, etc.)
   claude/         # Deeper context for coding agents
     architecture.md   # Visual layer, ECS patterns, data-driven design
-data/             # JSON5 content files (not yet created)
+data/             # JSON5 content files
   materials/
   items/
   species/
   blueprints/
   recipes/
-src/              # Game source (not yet created)
+src/              # Game source
   ecs/            # Components, systems
   scenes/         # Phaser scenes
   data/           # JSON5 loader
