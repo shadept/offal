@@ -328,7 +328,11 @@ The tutorial ends in death. This is by design. It establishes the loop and plant
 
 **Mechanical goal**: ensure the player never feels stuck. Meta-progression must be legible — the player should understand what they're accumulating and why it matters. By the end of Act I, they have made at least one meaningful choice in the hub that changed how a run played out.
 
-**Narrative beat**: a milestone of meta-progression unlocks a mission that leads to a ship with an unexpected occupant — a body. Not their previous run's body. A body from before the player took control. A clone they have no memory of.
+**Narrative beat**: when a meta-progression threshold is reached (example: 10,000 accumulated resources), a new mission silently becomes available in the hub roster. No fanfare. No "Act I complete." The mission briefing sounds routine — recover something from a previous expedition.
+
+The threshold is tracked invisibly. The player sees resources accumulating; they don't see a progress bar toward this moment. When the mission appears, it feels like a natural consequence of having done enough work — not a scripted event.
+
+The mission leads to a ship with an unexpected occupant — a body. Not their previous run's body. A body from before the player took control. A clone they have no memory of.
 
 The body has a note. The note is written by the clone to themselves — not to the player. It records a specific observation, a date, an inconsistency. It does not say "the corporation is lying." It says something concrete that the player can verify in future missions if they're paying attention.
 
