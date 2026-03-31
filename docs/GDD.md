@@ -44,6 +44,14 @@ These apply to every design decision:
 
 4. **Adaptation takes time.** A new body plan performs poorly until the nervous system catches up. Affinity grows through use, not through menus.
 
+5. **No correct playstyle.** Stealth, combat, manipulation of faction conflicts — all are valid paths. The game should not reward one approach over another structurally.
+
+6. **Death by accumulation, not by surprise.** Lethal situations should be readable before they become fatal. Bleeding kills slowly. Danger is signposted. The experienced player should be able to win consistently.
+
+7. **The body is progression.** No XP, no levels. What you are is what you've grafted, adapted, and survived with. The body is the character sheet.
+
+8. **The world existed before you arrived.** Factions have agendas. Situations are in progress. The player is a new variable in an ongoing system, not the reason the system exists.
+
 ---
 
 ## Data Schemas
@@ -173,6 +181,19 @@ All of this is data. The AI system runs perception and faction rules; it does no
 ## Meta Progression
 
 Persistent unlocks (new blueprints, materials, hull types) earned by in-run conditions. Codex of discovered entries. Run history. No XP.
+
+---
+
+## Turn System
+
+OFFAL uses a **time-energy model**, not rigid per-entity turns.
+
+Each action has a time cost. The actor with the most available time acts next. This means:
+- Fast entities act more frequently than slow ones
+- Heavy limbs increase action costs → directly affects combat timing
+- Speed is a real strategic variable, not a flat stat
+
+This is borrowed from Cogmind's proven approach. It makes limb mass tangible: grafting a massive metal arm means your attacks take longer, giving enemies more chances to act before your next move.
 
 ---
 
