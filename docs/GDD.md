@@ -363,11 +363,21 @@ A second silent threshold triggers the return mission: back to a ship the player
 
 ---
 
-#### Act III — Answers
+#### Act III — The Reckoning
 
-The largest ships. The most complex situations. The narrative thread becomes explicit — not all at once, but enough that the player who has been paying attention can assemble the picture.
+The ending is not a cutscene. It is a world state that emerges from what the player did across Acts I and II.
 
-Scope TBD — Act III is not designed until Acts I and II are playable and the narrative direction is confirmed by play.
+**The question** can be asked at any point — it is not tied to Act II completion. The question is not dialogue. It is an action: the player assembles the artefacts they've been recovering into something larger. A device. A weapon. A key. Something the corporation has been trying to build for reasons the player now understands.
+
+If the player assembles it first: **Path A.** The corporation knows. Act III begins with the player holding power the corporation needs. The missions become offensive — familiar ships revisited with new purpose, the corporation now the aggressor. The player knows these ships. The player has the advantage.
+
+If the corporation assembles it first: **Path B.** The player never made the connection, or didn't act in time. Act III begins from below — the corporation has activated whatever the device does, and the player is now playing catch-up. Harder. Not impossible.
+
+**Both paths end the same way: bring down the corporation.** The difference is the quality of the victory. Path A is revenge with leverage. Path B is resistance against the odds.
+
+The player only discovers which path they're on when Act III begins. There is no "you missed your window" screen — there are consequences.
+
+This means Act III has two design variants. Both are TBD until Acts I and II are playable. The branching point is the player's action (or inaction) with the artefacts — not a dialogue choice, not a timed event.
 
 ---
 
