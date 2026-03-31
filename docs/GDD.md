@@ -24,17 +24,15 @@ The comedy is not forced. It emerges from a universe where everything is biomech
 
 ## Architecture: Data-Driven by Default
 
-Every piece of game content — materials, items, recipes, morphologies, enemies, physical properties — lives in **data files** (JSON). The engine loads these files at boot and builds the world from them.
+Every piece of game content — materials, items, recipes, morphologies, enemies, physical properties — lives in **data files** ([JSON5](https://json5.org)). JSON5 is a superset of JSON that allows unquoted keys, comments, trailing commas, and single-quoted strings — same structure as JSON, less visual noise. The engine loads these files at boot and builds the world from them.
 
 The engine knows about *systems*: physics, crafting, combat, grafting, ecology.  
 The engine does **not** know about *content*: it has no hardcoded reference to any specific material, item, or creature.
 
 This means:
-- Adding a new material = writing a JSON file, no code change
-- Adding a new recipe = writing a JSON file, no code change
+- Adding a new material = writing a JSON5 file, no code change
+- Adding a new recipe = writing a JSON5 file, no code change
 - The crafting system reasons over properties, not IDs
-
-This is the pattern used by RimWorld (ThingDef XML), Caves of Qud (ObjectBlueprints XML), and CDDA (JSON + qualities). OFFAL extends it further: recipes also match by properties, not just by item ID.
 
 ---
 
@@ -221,7 +219,7 @@ Examples of what this table expresses (in data, not here as canonical):
 - jaw in head role → grants bite_attack
 - additional arm → grants equipment_slot
 
-The table is exhaustive and lives in `data/function-rules.json`. The code only reads the table.
+The table is exhaustive and lives in `data/function-rules.json5`. The code only reads the table.
 
 ---
 
@@ -231,7 +229,7 @@ The table is exhaustive and lives in `data/function-rules.json`. The code only r
 
 Processes propagation of physical states across tiles and entities.
 
-State propagation is defined in data (`data/physics-rules.json`):
+State propagation is defined in data (`data/physics-rules.json5`):
 ```
 PhysicsRule {
   trigger: PhysicalState       // e.g. "on_fire"
@@ -281,7 +279,7 @@ Discovery methods:
 - **Dip item**: item gains an effect derived from the potion's properties. If the potion effect and item material are incompatible, nothing happens (safe failure)
 - **Combine**: two potions combined produce a result computed by the physics/crafting system treating fluids as materials with their own tags
 
-Potion effects are defined in `data/potion-effects.json` — they are not hardcoded.
+Potion effects are defined in `data/potion-effects.json5` — they are not hardcoded.
 
 ---
 
@@ -311,7 +309,7 @@ Tracks a **combat profile** for the current run: a vector of tagged action frequ
 
 Enemy generation in unexplored rooms samples this profile and biases toward entities whose properties counter the dominant tags.
 
-Bias rules are defined in `data/ecology-rules.json`:
+Bias rules are defined in `data/ecology-rules.json5`:
 ```
 EcologyRule {
   playerProfile: { tag: string, threshold: int }  // "if player used fire_damage > 10"
@@ -344,7 +342,7 @@ Persistent across runs (stored in browser localStorage):
 - **Codex**: discovered item/material/creature entries (read-only encyclopedia)
 - **Run history**: cause of death, depth reached, notable events
 
-Unlocks are earned by satisfying conditions defined in `data/unlocks.json`. No XP, no level-up screens — conditions are things like "reach deck 3", "graft a non-organic limb", "die to your own fire".
+Unlocks are earned by satisfying conditions defined in `data/unlocks.json5`. No XP, no level-up screens — conditions are things like "reach deck 3", "graft a non-organic limb", "die to your own fire".
 
 ---
 
