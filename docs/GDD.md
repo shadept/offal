@@ -396,19 +396,76 @@ Potion effects are defined in `data/potion-effects.json5` — they are not hardc
 
 Manages the state of all modular bodies.
 
-On entity creation: morphology is loaded, slots are populated from LimbDefinitions, capabilities are computed via FunctionRule lookup.
+On entity creation: blueprint/species loaded, slots populated from LimbDefinitions, capabilities computed via FunctionRule lookup, locomotion affinity initialised.
 
-On limb damage:
-- Damage applied to limb HP pool
-- At 0 HP: limb enters `severed` state, drops as item, slot becomes stump
-- Capabilities derived from that slot are removed
-- Movement/combat penalties recalculated
+---
 
-On graft:
-- Player applies a limb item to a compatible stump
-- Compatibility checked: slot.accepts must include limb.type
-- Capabilities added per FunctionRule
-- Material of new limb is now part of the entity — physics system applies accordingly
+#### Limb Loss
+
+When a limb's HP reaches 0 (combat damage) or is voluntarily severed:
+
+1. Limb enters `severed` state and drops as a floor item
+2. Slot becomes a `stump` — open for grafting
+3. Capabilities from that slot are removed
+4. Locomotion type is re-derived from remaining slots
+5. **Bleeding begins immediately**
+
+Bleeding severity is determined by:
+
+```
+BleedSeverity = limb.size × limb.material.bleedMultiplier × severanceType
+```
+
+Where `severanceType`:
+- `combat_destruction` — lowest severity (wound is cauterised by the attack energy)
+- `voluntary_cut` — moderate severity (clean cut, significant blood loss)
+- `rip/tear` — highest severity (jagged wound, maximum blood loss)
+
+Bleeding is a **stacking DoT** applied to the torso (or core). Each stacking bleed reduces HP per turn. Multiple simultaneous bleeds compound.
+
+Untreated bleeding will kill. This is intentional — voluntary amputation for grafting purposes is a real risk that requires preparation or acceptance of consequences.
+
+---
+
+#### Wound Treatment
+
+Bleeding can be reduced or stopped by:
+
+- **Bandage/cloth applied to stump** — reduces bleed severity, does not heal HP
+- **Cauterisation** (apply fire source to stump) — stops bleeding immediately, but applies a burn debuff and destroys the stump (reduces graft compatibility temporarily)
+- **Medical item** — stops bleeding and begins HP recovery (rare, high value)
+- **Organic limb grafted to stump** — a successfully grafted organic limb seals the wound and stops bleeding. Non-organic grafts do not seal wounds on their own.
+
+Treatment is not automatic. The player must have the right items and take the action.
+
+---
+
+#### Voluntary Amputation
+
+The player can choose to sever their own limbs using a bladed item. This is always a deliberate action with a confirmation prompt.
+
+Reasons a player might do this:
+- Remove a burning/infected/cursed limb before damage spreads
+- Create a stump to graft a better limb
+- Reduce mass for movement purposes (e.g. in low-gravity sections)
+
+The action triggers bleeding immediately at `voluntary_cut` severity. The severed limb drops as a floor item. The player must manage the wound before proceeding.
+
+**There is no "safe" amputation.** Every body modification carries risk. The game rewards preparation and punishes impulse.
+
+---
+
+#### Grafting
+
+To graft a limb:
+1. Player has a `stump` slot and a compatible limb item in inventory
+2. Player initiates graft action (costs turns — not instantaneous)
+3. Compatibility checked: `slot.accepts` must include `limb.type`; size must be within one tier of slot's expected size (oversized or undersized grafts are possible but penalised)
+4. If the stump was from a voluntary cut: active bleeding must be below a threshold, or the graft action will fail (you cannot attach a limb to a wound that is actively haemorrhaging heavily)
+5. On success: limb attached, capabilities added per FunctionRule, locomotion re-derived, affinity updated
+6. Material of new limb becomes part of the entity — physics system tracks it
+
+**Rejection**: organic limbs grafted to non-organic stumps (or vice versa) have a rejection chance defined in data. Rejection causes the limb to detach after N turns with additional bleeding. Suppressed by certain potion effects or medical items.
 
 ---
 
