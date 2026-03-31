@@ -113,7 +113,11 @@ export class GameScene extends Scene {
     const mapPixelW = this.tileMap.width * TILE_SIZE;
     const mapPixelH = this.tileMap.height * TILE_SIZE;
     this.cameras.main.setBounds(0, 0, mapPixelW, mapPixelH);
-    this.centerCameraOnPlayer();
+    // Follow the player sprite with lerp smoothing — camera tracks the
+    // tween position during move animations instead of snapping after.
+    const playerSprite = this.entitySprites.get(this.playerEid)!;
+    this.cameras.main.startFollow(playerSprite, true, 0.15, 0.15,
+      -TILE_SIZE / 2, -TILE_SIZE / 2);
 
     // ── Register visual event handlers ──
     this.registerEventHandlers();
@@ -326,9 +330,6 @@ export class GameScene extends Scene {
     this.updateFOV();
     this.renderTiles();
 
-    // Center camera
-    this.centerCameraOnPlayer();
-
     // Advance turn
     this.turnSystem.onPlayerAnimationComplete(this.world);
   }
@@ -418,15 +419,6 @@ export class GameScene extends Scene {
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  // CAMERA
-  // ════════════════════════════════════════════════════════════
-
-  private centerCameraOnPlayer(): void {
-    const px = Position.x[this.playerEid] * TILE_SIZE + TILE_SIZE / 2;
-    const py = Position.y[this.playerEid] * TILE_SIZE + TILE_SIZE / 2;
-    this.cameras.main.centerOn(px, py);
-  }
 
   // ════════════════════════════════════════════════════════════
   // IDLE ANIMATIONS
