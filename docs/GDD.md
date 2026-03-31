@@ -372,7 +372,7 @@ Each mission has optional objectives that advance the thread: cargo manifests, c
 
 | | |
 |---|---|
-| **Stack** | TypeScript + Phaser 3 + bitECS + Vite |
+| **Stack** | TypeScript + Phaser 4 + bitECS + Vite |
 | **Data format** | JSON5 |
 | **Art** | Kenney.nl CC0 base; Kenney Character & Creature Mixer for modular entity sprites |
 | **Sprite system** | Per-limb sprites composed at runtime; animations defined per limb type |

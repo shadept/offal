@@ -12,7 +12,7 @@
 *Goal: browser opens, black screen with a tile rendered.*
 
 - [ ] 🔴 Init Vite + TypeScript project
-- [ ] 🔴 Install and configure Phaser 3
+- [ ] 🔴 Install and configure Phaser 4
 - [ ] 🔴 Install bitECS
 - [ ] 🔴 Install json5 parser
 - [ ] 🔴 Basic project structure:

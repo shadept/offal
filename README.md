@@ -2,7 +2,7 @@
 
 > *A roguelike about what you're made of*
 
-A browser-based roguelike built with TypeScript + Phaser 3 + bitECS.
+A browser-based roguelike built with TypeScript + Phaser 4 + bitECS.
 
 You are a Salvager stranded in a ship graveyard in deep space. Your body is your inventory, your weapon, and your greatest liability.
 
@@ -23,7 +23,7 @@ See [docs/BACKLOG.md](docs/BACKLOG.md) for the development backlog.
 ## Stack
 
 - TypeScript
-- Phaser 3 (2D renderer)
+- Phaser 4 (2D renderer)
 - bitECS (Entity Component System)
 - Vite (build/dev server)
 
