@@ -301,11 +301,23 @@ Mechanically: the previous character's body is lootable. You can recover equipme
 
 #### The Hidden Thread
 
-Runs are not independent. A non-obvious narrative connects them — one the player doesn't see at first. Patterns emerge over multiple missions: why this nebula? What is the corporation actually searching for? Who built these ships, and why did they all fail?
+Runs are not independent. A non-obvious narrative connects them — one the player doesn't see at first.
 
-Some answers only surface if certain ships were explored in a certain order, or if specific things were discovered across multiple runs. The story is not told — it is assembled from fragments by a player paying attention.
+**Narrative pacing across runs:**
 
-This transforms individual runs into chapters of something larger. The player who finishes run twelve may suddenly understand something about run three.
+**Phase 1 — First run.** The mission is legitimate. The corporation is a normal employer. The nebula is a salvage zone. Subtle signals that something is off, but ambiguous enough to dismiss — lore fragments that don't quite add up, a ship layout that implies something was being hidden rather than stored.
+
+**Phase 2 — Early runs.** The corporation responds to the player's deaths with unsettling efficiency. The briefings are form letters. The knowledge extracted from dead clones is catalogued and filed. The player starts to notice patterns in the lore fragments across different ships.
+
+**Phase 3 — The return.** The player is sent back to a ship they've visited before. Somewhere in it is their own previous character — dead, in exactly the state they left them. Wearing the equipment the player chose. Bearing the grafts the player made.
+
+This should be impossible if you are a new clone with no memory of prior runs. The game does not explain it. It leaves the player with the question.
+
+From this point, the player is actively asking: why this nebula? What is the corporation actually searching for? Who built these ships, and why did they all fail? What am I?
+
+Some answers only surface if certain ships were explored in a certain order, or if specific things were discovered across multiple runs. The story is assembled from fragments — never told directly.
+
+The player who finishes run twelve may suddenly understand something about run three.
 
 ### The Hub
 
