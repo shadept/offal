@@ -51,6 +51,90 @@ function markVisible(
   }
 }
 
+/**
+ * Compute FOV tiles without modifying map state.
+ * Returns array of {x, y} positions visible from (ox, oy).
+ * Used by sandbox debug overlays.
+ */
+export function computeFOVTiles(
+  map: TileMap, ox: number, oy: number, radius: number,
+): { x: number; y: number }[] {
+  const result: { x: number; y: number }[] = [];
+  const seen = new Set<number>();
+
+  const collect = (x: number, y: number) => {
+    if (!map.inBounds(x, y)) return;
+    const k = y * map.width + x;
+    if (!seen.has(k)) {
+      seen.add(k);
+      result.push({ x, y });
+    }
+  };
+
+  collect(ox, oy);
+
+  for (const [xx, xy, yx, yy] of OCTANT_MULTIPLIERS) {
+    castLightCollect(map, ox, oy, radius, 1, 1.0, 0.0, xx, xy, yx, yy, collect);
+  }
+
+  return result;
+}
+
+function castLightCollect(
+  map: TileMap,
+  ox: number,
+  oy: number,
+  radius: number,
+  row: number,
+  startSlope: number,
+  endSlope: number,
+  xx: number,
+  xy: number,
+  yx: number,
+  yy: number,
+  collect: (x: number, y: number) => void,
+): void {
+  if (startSlope < endSlope) return;
+
+  let nextStartSlope = startSlope;
+
+  for (let i = row; i <= radius; i++) {
+    let blocked = false;
+
+    for (let dx = -i, dy = -i; dx <= 0; dx++) {
+      const mapX = ox + dx * xx + dy * xy;
+      const mapY = oy + dx * yx + dy * yy;
+
+      const lSlope = (dx - 0.5) / (dy + 0.5);
+      const rSlope = (dx + 0.5) / (dy - 0.5);
+
+      if (startSlope < rSlope) continue;
+      if (endSlope > lSlope) break;
+
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= radius) {
+        collect(mapX, mapY);
+      }
+
+      if (blocked) {
+        if (map.blocksLight(mapX, mapY)) {
+          nextStartSlope = rSlope;
+          continue;
+        } else {
+          blocked = false;
+          startSlope = nextStartSlope;
+        }
+      } else if (map.blocksLight(mapX, mapY) && i < radius) {
+        blocked = true;
+        castLightCollect(map, ox, oy, radius, i + 1, startSlope, lSlope, xx, xy, yx, yy, collect);
+        nextStartSlope = rSlope;
+      }
+    }
+
+    if (blocked) break;
+  }
+}
+
 function castLight(
   map: TileMap,
   ox: number,

@@ -7,15 +7,15 @@
  */
 import { query, addEntity, addComponent, removeEntity, hasComponent } from 'bitecs';
 import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, AI, Health, Faction, CombatStats, Dead } from '../ecs/components';
-import { getFactionIndex, getFactionId } from '../ecs/factions';
+import { getFactionIndex } from '../ecs/factions';
 import { TileMap } from '../map/TileMap';
 import { Visibility } from '../types';
 import { getRegistry } from '../data/loader';
 import type { SpeciesData } from '../types';
 import type { TurnSystem } from '../ecs/systems/turnSystem';
 import type { VisualEventQueue } from '../visual/EventQueue';
-import { bfsFullPath } from '../ecs/systems/aiSystem';
-import type { SandboxTool, TileInspectData, EntityInspectData, AIDebugData } from './types';
+import { DebugOverlayRegistry } from './debugOverlays';
+import type { SandboxTool, TileInspectData, EntityInspectData } from './types';
 
 const VIS_NAMES: Record<number, string> = {
   [Visibility.UNSEEN]: 'Unseen',
@@ -43,6 +43,10 @@ export class SandboxController {
   autoPlay = false;
   autoPlaySpeed = 3; // turns per second
   aiOnly = false;
+
+  // ── Debug overlays ──
+  readonly debugRegistry = new DebugOverlayRegistry();
+  readonly enabledOverlays = new Set<string>();
 
   // ── Refs (set by GameScene) ──
   private tileMap!: TileMap;
@@ -88,6 +92,7 @@ export class SandboxController {
       this.selectedTile = null;
       this.selectedEntity = null;
       this.autoPlay = false;
+      this.enabledOverlays.clear();
     }
     this.emit('toggle');
   }
@@ -132,58 +137,10 @@ export class SandboxController {
     if (!entities.includes(eid)) return null;
 
     const players = query(this.world, [PlayerTag]);
-    const aiEntities = query(this.world, [AI]);
-    const hasAI = aiEntities.includes(eid);
-    const speciesId = Renderable.spriteIndex[eid];
-    const factionIdx = hasComponent(this.world, eid, Faction) ? Faction.factionIndex[eid] : 255;
-    const factionName = getFactionId(factionIdx) ?? 'none';
-    const aiTargetEid = hasAI ? AI.targetEid[eid] : -1;
-    // Compute path length for debug
-    let aiPathLength = 0;
-    if (hasAI && aiTargetEid >= 0) {
-      const tx = Position.x[aiTargetEid];
-      const ty = Position.y[aiTargetEid];
-      const path = bfsFullPath(Position.x[eid], Position.y[eid], tx, ty, this.tileMap, eid, this.world);
-      aiPathLength = path.length;
-    }
     return {
       eid,
-      position: { x: Position.x[eid], y: Position.y[eid] },
-      spriteIndex: speciesId,
-      layer: Renderable.layer[eid],
-      energy: Turn.energy[eid],
-      speed: Turn.speed[eid],
-      fovRange: FOV.range[eid],
       isPlayer: players.includes(eid),
-      hasAI,
-      aiBehaviour: hasAI ? AI.behaviour[eid] : 0,
-      aiTargetEid,
-      aiPathLength,
-      hp: hasComponent(this.world, eid, Health) ? Health.hp[eid] : 0,
-      maxHp: hasComponent(this.world, eid, Health) ? Health.maxHp[eid] : 0,
-      faction: factionName,
-      attackDamage: hasComponent(this.world, eid, CombatStats) ? CombatStats.attackDamage[eid] : 0,
     };
-  }
-
-  /** Get AI debug overlay data for a given entity. */
-  getAIDebugData(eid: number): AIDebugData | null {
-    const aiEntities = query(this.world, [AI]);
-    if (!aiEntities.includes(eid)) return null;
-
-    const behaviour = AI.behaviour[eid];
-    const targetEid = AI.targetEid[eid];
-    let path: { x: number; y: number }[] = [];
-    let targetTile: { x: number; y: number } | null = null;
-
-    if (targetEid >= 0 && !hasComponent(this.world, targetEid, Dead)) {
-      const tx = Position.x[targetEid];
-      const ty = Position.y[targetEid];
-      targetTile = { x: tx, y: ty };
-      path = bfsFullPath(Position.x[eid], Position.y[eid], tx, ty, this.tileMap, eid, this.world);
-    }
-
-    return { path, targetTile, behaviour, targetEid };
   }
 
   /** Get all species available for spawning (non-playerStart) */
@@ -264,6 +221,22 @@ export class SandboxController {
     this.selectedEntity = this.findEntityAt(x, y);
     this.emit('selection_changed');
   }
+
+  toggleOverlay(name: string): void {
+    if (this.enabledOverlays.has(name)) {
+      this.enabledOverlays.delete(name);
+    } else {
+      this.enabledOverlays.add(name);
+    }
+    this.emit('overlays_changed');
+  }
+
+  isOverlayEnabled(name: string): boolean {
+    return this.enabledOverlays.has(name);
+  }
+
+  /** Expose world for debug registry. */
+  getWorld(): object { return this.world; }
 
   // ═══════════════════════════════════════════════════════════
   // SIMULATION

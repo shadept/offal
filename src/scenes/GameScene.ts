@@ -101,8 +101,8 @@ export class GameScene extends Scene {
   // ── Sandbox animation state ──
   private sandboxDraining = false;
 
-  // ── AI debug overlay ──
-  private aiOverlay!: Phaser.GameObjects.Graphics;
+  // ── Debug overlays (one Graphics object per enabled component overlay) ──
+  private debugOverlays = new Map<string, Phaser.GameObjects.Graphics>();
 
   constructor() {
     super({ key: 'GameScene' });
@@ -198,10 +198,6 @@ export class GameScene extends Scene {
     this.selectionHighlight.setDepth(50);
     this.selectionHighlight.setVisible(false);
 
-    // AI debug overlay (drawn above tiles, below entities)
-    this.aiOverlay = this.add.graphics();
-    this.aiOverlay.setDepth(5);
-    this.aiOverlay.setVisible(false);
 
     // Pointer click for sandbox
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -217,7 +213,8 @@ export class GameScene extends Scene {
       if (event === 'entity_removed') this.onEntityRemoved(data as { eid: number });
       if (event === 'reveal_changed') this.onRevealChanged();
       if (event === 'turn_advanced') this.onTurnAdvanced();
-      if (event === 'selection_changed') this.updateAIOverlay();
+      if (event === 'selection_changed') this.updateDebugOverlays();
+      if (event === 'overlays_changed') this.updateDebugOverlays();
     });
   }
 
@@ -796,11 +793,11 @@ export class GameScene extends Scene {
         this.updateFOV();
         this.renderTiles();
         this.sandboxPanel.updateInspector();
-        this.updateAIOverlay();
+        this.updateDebugOverlays();
       });
     } else {
       this.sandboxPanel.updateInspector();
-      this.updateAIOverlay();
+      this.updateDebugOverlays();
     }
   }
 
@@ -854,7 +851,7 @@ export class GameScene extends Scene {
     if (!this.sandbox.active) {
       // Exiting sandbox — clean up
       this.selectionHighlight.setVisible(false);
-      this.clearAIOverlay();
+      this.clearDebugOverlays();
       this.autoPlayTimer = 0;
       this.sandboxDraining = false;
       // Restore FOV
@@ -863,40 +860,39 @@ export class GameScene extends Scene {
     }
   }
 
-  /** Draw AI debug overlay for the currently selected entity. */
-  private updateAIOverlay(): void {
-    this.clearAIOverlay();
+  /** Redraw all enabled debug overlays for the selected entity. */
+  private updateDebugOverlays(): void {
+    this.clearDebugOverlays();
 
     if (!this.sandbox.active || this.sandbox.selectedEntity === null) return;
 
-    const debug = this.sandbox.getAIDebugData(this.sandbox.selectedEntity);
-    if (!debug) return;
+    const eid = this.sandbox.selectedEntity;
+    const world = this.sandbox.getWorld();
+    const map = this.sandbox.getMap();
+    const registry = this.sandbox.debugRegistry;
+    const inspectors = registry.getFor(world, eid);
 
-    this.aiOverlay.setVisible(true);
+    for (const inspector of inspectors) {
+      if (!inspector.hasOverlay || !inspector.renderOverlay) continue;
+      if (!this.sandbox.isOverlayEnabled(inspector.name)) continue;
 
-    // Draw BFS path tiles (semi-transparent blue)
-    if (debug.path.length > 0) {
-      this.aiOverlay.fillStyle(0x3366ff, 0.25);
-      for (const tile of debug.path) {
-        this.aiOverlay.fillRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      let gfx = this.debugOverlays.get(inspector.name);
+      if (!gfx) {
+        gfx = this.add.graphics();
+        gfx.setDepth(5);
+        this.debugOverlays.set(inspector.name, gfx);
       }
-    }
-
-    // Draw target tile (red outline)
-    if (debug.targetTile) {
-      this.aiOverlay.lineStyle(2, 0xff3333, 0.8);
-      this.aiOverlay.strokeRect(
-        debug.targetTile.x * TILE_SIZE + 1,
-        debug.targetTile.y * TILE_SIZE + 1,
-        TILE_SIZE - 2,
-        TILE_SIZE - 2,
-      );
+      gfx.clear();
+      gfx.setVisible(true);
+      inspector.renderOverlay(gfx, world, eid, map);
     }
   }
 
-  private clearAIOverlay(): void {
-    this.aiOverlay.clear();
-    this.aiOverlay.setVisible(false);
+  private clearDebugOverlays(): void {
+    for (const [, gfx] of this.debugOverlays) {
+      gfx.clear();
+      gfx.setVisible(false);
+    }
   }
 
   private onTilePainted(data: { x: number; y: number; type: number }): void {

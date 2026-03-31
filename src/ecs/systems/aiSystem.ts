@@ -11,7 +11,7 @@
  */
 import { query, hasComponent } from 'bitecs';
 import {
-  AI, AIBehaviour, Turn, PlayerTag, Position, FOV,
+  AI, AIState, Turn, PlayerTag, Position, FOV,
   Health, Faction, CombatStats, Dead, BlocksMovement,
 } from '../components';
 import { areHostile } from '../factions';
@@ -95,16 +95,16 @@ export function processAITurns(
       if (dist === 1) {
         // Adjacent — attack
         performAttack(eid, target, world, eventQueue);
-        AI.behaviour[eid] = AIBehaviour.SEEK;
+        AI.state[eid] = AIState.SEEK;
       } else {
         // Seek toward target
-        AI.behaviour[eid] = AIBehaviour.SEEK;
+        AI.state[eid] = AIState.SEEK;
         seekToward(eid, target, map, world, eventQueue, pendingTiles);
       }
     } else {
       // No hostile in range — wander
       AI.targetEid[eid] = -1;
-      AI.behaviour[eid] = AIBehaviour.WANDER;
+      AI.state[eid] = AIState.WANDER;
       wander(eid, map, world, eventQueue, pendingTiles);
     }
 

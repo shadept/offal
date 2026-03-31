@@ -32,16 +32,20 @@ export const FOV = soa({
 });
 
 // ── AI ────────────────────────────────────────────────────────
-// behaviour: 0 = idle, 1 = wander, 2 = seek
+// state: 0 = idle, 1 = wander, 2 = seek, 3 = searching
 export const AI = soa({
-  behaviour: new Uint8Array(MAX_ENTITIES),
-  targetEid: new Int32Array(MAX_ENTITIES), // -1 = no target
+  state: new Uint8Array(MAX_ENTITIES),
+  targetEid: new Int32Array(MAX_ENTITIES),      // -1 = no target
+  lastKnownX: new Int32Array(MAX_ENTITIES),     // -1 = none
+  lastKnownY: new Int32Array(MAX_ENTITIES),     // -1 = none
+  searchBudget: new Uint8Array(MAX_ENTITIES),
 });
 
-export const AIBehaviour = {
+export const AIState = {
   IDLE: 0,
   WANDER: 1,
   SEEK: 2,
+  SEARCHING: 3,
 } as const;
 
 // ── Health ────────────────────────────────────────────────────

@@ -4,9 +4,13 @@
  * Built entirely with createElement (no innerHTML). Sits on top of the
  * Phaser canvas at the right edge. Communicates with the game exclusively
  * through SandboxController.
+ *
+ * The entity inspector is component-driven: it queries the DebugOverlayRegistry
+ * for each ECS component the selected entity has, showing a collapsible section
+ * per component with optional debug overlay toggles.
  */
 import type { SandboxController } from './SandboxController';
-import type { SandboxTool, TileInspectData, EntityInspectData } from './types';
+import type { SandboxTool, TileInspectData } from './types';
 
 // ═══════════════════════════════════════════════════════════
 // CSS
@@ -138,6 +142,45 @@ const CSS = `
   font-style: italic;
 }
 
+/* Component inspector sections */
+.sb-comp-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 3px 0;
+}
+.sb-comp-toggle {
+  font-size: 9px;
+  color: #556666;
+  width: 10px;
+}
+.sb-comp-name {
+  font-size: 11px;
+  color: #aabbbb;
+  font-weight: bold;
+}
+.sb-comp-body {
+  padding-left: 16px;
+  margin-bottom: 2px;
+}
+.sb-comp-body.collapsed {
+  display: none;
+}
+.sb-debug-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #7799aa;
+  cursor: pointer;
+  margin-bottom: 2px;
+  padding-left: 16px;
+}
+.sb-debug-label input {
+  accent-color: #e94560;
+}
+
 /* Sim controls */
 .sb-sim-row {
   display: flex;
@@ -224,6 +267,9 @@ export class SandboxPanel {
   private speedValueEl!: HTMLSpanElement;
   private toolButtons: HTMLButtonElement[] = [];
   private paintButtons: HTMLButtonElement[] = [];
+
+  // Collapse state for component sections (persists across updates)
+  private collapsedComponents = new Set<string>();
 
   constructor(controller: SandboxController) {
     this.ctrl = controller;
@@ -516,11 +562,11 @@ export class SandboxPanel {
       this.renderTileInfo(tileInfo);
     }
 
-    // Entity info
+    // Entity info — component-driven
     if (this.ctrl.selectedEntity !== null) {
       const entInfo = this.ctrl.getEntityInfo(this.ctrl.selectedEntity);
       if (entInfo) {
-        this.renderEntityInfo(entInfo);
+        this.renderEntityInfo(entInfo.eid, entInfo.isPlayer);
       }
     }
   }
@@ -553,46 +599,75 @@ export class SandboxPanel {
     }
   }
 
-  private renderEntityInfo(info: EntityInspectData): void {
+  private renderEntityInfo(eid: number, isPlayer: boolean): void {
     const entLabel = this.el('div', 'sb-section-title');
-    entLabel.textContent = info.isPlayer ? 'Entity (Player)' : 'Entity (NPC)';
+    entLabel.textContent = isPlayer ? `Entity (Player) EID ${eid}` : `Entity (NPC) EID ${eid}`;
     entLabel.style.marginTop = '8px';
     this.entityInspectEl.appendChild(entLabel);
 
-    const AI_BEHAVIOURS: Record<number, string> = { 0: 'Idle', 1: 'Wander', 2: 'Seek' };
-    const aiState = info.hasAI ? (AI_BEHAVIOURS[info.aiBehaviour] ?? `Unknown(${info.aiBehaviour})`) : 'None';
-    const lines: [string, string][] = [
-      ['EID', String(info.eid)],
-      ['Position', `(${info.position.x}, ${info.position.y})`],
-      ['HP', `${info.hp} / ${info.maxHp}`],
-      ['Faction', info.faction],
-      ['Attack', String(info.attackDamage)],
-      ['Energy', info.energy.toFixed(0)],
-      ['Speed', info.speed.toFixed(0)],
-      ['FOV Range', String(info.fovRange)],
-      ['AI', aiState],
-      ...(info.hasAI ? [
-        ['Target', info.aiTargetEid >= 0 ? `EID ${info.aiTargetEid}` : 'None'] as [string, string],
-        ['Path Len', info.aiTargetEid >= 0 ? String(info.aiPathLength) : '-'] as [string, string],
-      ] : []),
-    ];
+    // Query the registry for all components this entity has
+    const world = this.ctrl.getWorld();
+    const map = this.ctrl.getMap();
+    const inspectors = this.ctrl.debugRegistry.getFor(world, eid);
 
-    for (const [label, value] of lines) {
-      const row = this.el('div');
-      const lbl = this.el('span', 'sb-inspect-label');
-      lbl.textContent = label + ': ';
-      const val = this.el('span', 'sb-inspect-value');
-      val.textContent = value;
-      row.append(lbl, val);
-      this.entityInspectEl.appendChild(row);
+    for (const inspector of inspectors) {
+      const name = inspector.name;
+      const isCollapsed = this.collapsedComponents.has(name);
+
+      // Section header (clickable to collapse)
+      const header = this.el('div', 'sb-comp-header');
+      const toggle = this.el('span', 'sb-comp-toggle');
+      toggle.textContent = isCollapsed ? '\u25b8' : '\u25be';
+      const nameEl = this.el('span', 'sb-comp-name');
+      nameEl.textContent = name;
+      header.append(toggle, nameEl);
+      header.addEventListener('click', () => {
+        if (this.collapsedComponents.has(name)) {
+          this.collapsedComponents.delete(name);
+        } else {
+          this.collapsedComponents.add(name);
+        }
+        this.updateInspector();
+      });
+      this.entityInspectEl.appendChild(header);
+
+      // Debug overlay checkbox (if this component has an overlay)
+      if (inspector.hasOverlay) {
+        const debugLabel = this.el('label', 'sb-debug-label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = this.ctrl.isOverlayEnabled(name);
+        cb.addEventListener('change', () => {
+          this.ctrl.toggleOverlay(name);
+        });
+        debugLabel.append(cb, 'show debug overlay');
+        this.entityInspectEl.appendChild(debugLabel);
+      }
+
+      // Section body (collapsible)
+      const body = this.el('div', 'sb-comp-body');
+      if (isCollapsed) body.classList.add('collapsed');
+
+      const fields = inspector.getFields(world, eid, map);
+      for (const [label, value] of fields) {
+        const row = this.el('div');
+        const lbl = this.el('span', 'sb-inspect-label');
+        lbl.textContent = label + ': ';
+        const val = this.el('span', 'sb-inspect-value');
+        val.textContent = value;
+        row.append(lbl, val);
+        body.appendChild(row);
+      }
+
+      this.entityInspectEl.appendChild(body);
     }
 
     // Delete button (disabled for player)
     const delBtn = this.el('button', 'sb-delete-btn');
     delBtn.textContent = 'Delete Entity';
-    delBtn.disabled = info.isPlayer;
+    delBtn.disabled = isPlayer;
     delBtn.addEventListener('click', () => {
-      this.ctrl.deleteEntity(info.eid);
+      this.ctrl.deleteEntity(eid);
     });
     this.entityInspectEl.appendChild(delBtn);
   }

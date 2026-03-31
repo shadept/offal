@@ -19,27 +19,6 @@ export interface TileInspectData {
 
 export interface EntityInspectData {
   eid: number;
-  position: { x: number; y: number };
-  spriteIndex: number;
-  layer: number;
-  energy: number;
-  speed: number;
-  fovRange: number;
   isPlayer: boolean;
-  hasAI: boolean;
-  aiBehaviour: number;
-  aiTargetEid: number;
-  aiPathLength: number;
-  hp: number;
-  maxHp: number;
-  faction: string;
-  attackDamage: number;
 }
 
-/** AI debug data for overlay rendering */
-export interface AIDebugData {
-  path: { x: number; y: number }[];
-  targetTile: { x: number; y: number } | null;
-  behaviour: number;
-  targetEid: number;
-}
