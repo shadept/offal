@@ -4,6 +4,8 @@
 
 **Philosophy**: Every phase ends with something testable. No long stretches without visual feedback.
 
+**Visual requirement (applies to all phases)**: game logic is turn-based; visuals run at 60fps continuously. Fire animates whether or not it's the player's turn. Entities have idle animations. Ambient sound loops. Environmental details (sparks, flickering lights, console beeps) run independently of game state. This is not a polish pass — it is an architectural requirement from Phase 1 onward.
+
 ---
 
 ## Phase 0 — Project Scaffold
@@ -44,8 +46,10 @@
 - [ ] 🔴 Tile map component (grid of tile IDs)
 - [ ] 🔴 Tile renderer (Phaser tilemap or manual sprite grid)
 - [ ] 🔴 Camera follows player entity
+- [ ] 🔴 Phaser game loop runs at 60fps — game logic updates on turn tick only, render updates every frame
 - [ ] 🟡 Basic tile types: floor, wall, door (open/closed)
 - [ ] 🟡 Field of view — tiles revealed by line-of-sight
+- [ ] 🟡 Ambient visual layer: particle emitters and tweens for environmental detail (sparks, flickers) run independently of turn system
 
 ### ECS Foundation
 - [ ] 🔴 Position component

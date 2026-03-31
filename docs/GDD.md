@@ -37,6 +37,8 @@ The comedy is not written in. It emerges from consistent systems meeting player 
 
 **Healthy systems are invisible.** Organs, capacities, and status effects do not generate UI noise when functioning normally. Information surfaces when it becomes relevant, not before.
 
+**Logic is turn-based. Visuals never stop.** Game state advances in turns. The visual layer runs continuously at 60fps regardless of whether the player is acting. Fire animates. Creatures breathe. Exposed wires spark. Alert lights pulse. Console screens flicker. The world feels alive even when waiting for input. These are not gameplay systems — they are visual detail layered on top of game state, and they must be present from the first prototype.
+
 ---
 
 ## 2. Body System
