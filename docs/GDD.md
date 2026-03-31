@@ -191,19 +191,19 @@ The contamination rule is the most general: any substance that touches any entit
 
 ### 3.3 Gas and Pressure Simulation
 
-Each tile holds a gas concentration value (0–1). Pressure = concentration × temperature of tile.
+Each tile holds a gas concentration value (0–1). Gas flows from high-concentration tiles to adjacent lower-concentration tiles each turn. Temperature amplifies this — a hot tile with gas pushes outward more forcefully than a cold tile at the same concentration.
 
-Gas flows from high-pressure tiles to adjacent lower-pressure tiles each turn. The flow rate is inversely proportional to gas density — dense gases move slowly and accumulate; thin gases disperse quickly.
+Flow rate is uniform across gas types — all gases spread at the same rate given the same pressure differential. The difference between gases is in their *properties* (toxicity, flammability, etc.), not in how they physically move.
 
-Sources that affect tile pressure:
+Sources that affect tile concentration:
 - Gas-emitting systems (fuel lines, biological creatures, specimen tanks)
-- Temperature changes (hot tile increases pressure of gas in it)
-- Ventilation (directional force — not a separate system, just a pressure source with direction)
-- Breaches (vacuum adjacent tile = pressure sink, maximum pull)
+- Temperature (hot tile accelerates outward flow; cold tile slows it)
+- Ventilation (directional force — a pressure source with direction, not a separate system)
+- Breaches into vacuum (pressure sink — maximum outward pull)
 
 **Decompression**: when a pressurised tile breaches into vacuum, everything unsecured pulls toward the breach. Fire extinguishes. O₂ drops to zero. Organic entities begin suffocating.
 
-**Overpressure**: when concentration exceeds structural threshold, the weakest adjacent wall/door ruptures outward. Fragments damage nearby tiles.
+**Overpressure**: when concentration in an enclosed space exceeds the structural threshold of the weakest wall or door, it ruptures outward. Fragments damage adjacent tiles.
 
 ### 3.4 Hull Type and Physics Profile
 
