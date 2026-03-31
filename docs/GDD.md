@@ -282,6 +282,25 @@ It also earns the comedy naturally. You are disposable and aware of it. The hub 
 
 The specific narrative — who the corporation is, what the nebula is, what happened to the ships — is TBD and will be developed once there is something playable to build story around.
 
+#### The Persistent World & Returning Missions
+
+Ships visited in previous runs are **not discarded**. They persist in the world state — what died there, stayed there. What was left behind, is still there.
+
+Occasionally, the mission roster includes a return to a previously visited ship:
+- **"Loose ends"** — recover something a previous clone left behind, or finish what they started
+- **"Cleanup"** — a previous clone caused a situation that has since escalated; go fix it
+- **"Investigation"** — a previous clone's death telemetry flagged something unusual; find out what killed them
+
+Returning to a ship where a previous clone died is narratively significant. Their body may still be there. They may have left notes or half-finished crafting. What killed them may still be present — possibly evolved or repositioned.
+
+#### The Hidden Thread
+
+Runs are not independent. A non-obvious narrative connects them — one the player doesn't see at first. Patterns emerge over multiple missions: why this nebula? What is the corporation actually searching for? Who built these ships, and why did they all fail?
+
+Some answers only surface if certain ships were explored in a certain order, or if specific things were discovered across multiple runs. The story is not told — it is assembled from fragments by a player paying attention.
+
+This transforms individual runs into chapters of something larger. The player who finishes run twelve may suddenly understand something about run three.
+
 ### The Hub
 
 A persistent location between missions (corporate facility, clone production wing — TBD). The hub is where meta-progress lives. Your character does not persist; the corporation's knowledge and resources do.
