@@ -240,7 +240,43 @@ All of this is data. The AI system runs perception and faction rules; it does no
 
 ## Meta Progression
 
-Persistent unlocks (new blueprints, materials, hull types) earned by in-run conditions. Codex of discovered entries. Run history. No XP.
+Death is not a failure state. It is a step back — a return to the hub with everything you learned, ready to approach the next mission differently.
+
+### The Hub
+
+A persistent location between missions (a salvage station, an abandoned relay — TBD by narrative). The hub is where meta-progress lives. Your character does not persist; your knowledge and resources do.
+
+### Three Meta-Resources
+
+| Resource | How earned | What it unlocks |
+|---|---|---|
+| **Materials** | Extracted loot from successful missions | Starting equipment, prosthetics, consumables for the next run |
+| **Biological knowledge** | Grafting enemy limbs, analysing creatures | New starting species, new limb types available from the start |
+| **Technological knowledge** | Crafting items, analysing ship technology | Known recipes at run start, better starting tools |
+
+These are not experience points. They are things you actually did and brought back. A run where you graft five different limb types and die at the last boss still advances your biological knowledge significantly. Death with progress is not wasted.
+
+### Starting a New Run
+
+Before each run, the player configures their starting loadout using accumulated meta-resources:
+- Choose a starting species (unlocked by biological knowledge)
+- Choose starting equipment and consumables (purchased with materials)
+- Starting recipes are automatically known based on technological knowledge
+
+Runs begin stronger not because of a level number, but because you have more options. A player who has never played before starts with one species and basic equipment. A veteran starts with choices.
+
+### Death as Information
+
+Every death teaches something the game does not explain directly:
+- Died of infection in a specimen room → bring treatment next time
+- Died because the heart couldn't support six grafted arms → prioritise heart upgrades before over-grafting
+- Died because a pirate group was too large to fight → try arriving when they're already fighting security
+
+The meta-progression system does not reward grinding — it rewards discovery. You unlock things by doing them, not by repeating them.
+
+### Codex
+
+A persistent in-hub encyclopedia of discovered entries: species, materials, items, faction behaviours, ship types. Populated by experience, not purchased. Read-only. Acts as institutional memory across runs.
 
 ---
 
