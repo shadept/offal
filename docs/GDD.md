@@ -346,11 +346,20 @@ The player who reads it carefully has a question. The player who skims it will r
 
 **Mechanical goal**: the player is now operating with meta-progression that meaningfully affects their starting position. Runs feel different from each other. The adaptive ecology is demonstrably responding to their playstyle.
 
-**Narrative beat**: a return mission — back to a ship the player actually visited. Somewhere in it is their own previous character, in exactly the state they left them.
+**Narrative beat**: missions become more exotic in their objectives — recover unusual artefacts, analyse anomalies, retrieve something with no listed origin. The briefings remain clinical and routine. What the player finds in the field does not match the briefings.
 
-This does not happen on a fixed run number. It happens when the conditions are right — enough context built for the moment to land.
+Each mission adds fragments that don't resolve cleanly:
+- Corporate bodies in ships where no corporate expedition was logged
+- Previous clone bodies beyond the one from Act I — more than there should be
+- Failed missions that the hub never mentioned, with evidence of what went wrong
+- Artefacts that appear in no cargo manifest, with no corporate designation
+- Traces of conflict between factions that shouldn't have met
 
-From this point, the player is actively asking: why this nebula? What is the corporation actually searching for? Who built these ships? What am I?
+Nothing is explained. Nothing is connected explicitly. The player assembles a picture from what they find — and the picture is incomplete in a way that feels deliberate, not accidental.
+
+A second silent threshold triggers the return mission: back to a ship the player actually visited. Their own previous character is there, in exactly the state they left them.
+
+**Act II ends when the player can ask the right question** — not when they have the answer, but when they know what they're actually asking. That is the threshold for Act III.
 
 ---
 
