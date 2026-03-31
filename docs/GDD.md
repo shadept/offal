@@ -311,11 +311,24 @@ Runs are not independent. A non-obvious narrative connects them — one the play
 
 **Phase 3 — The return.** The player is sent back to a ship they've visited before. Somewhere in it is their own previous character — dead, in exactly the state they left them. Wearing the equipment the player chose. Bearing the grafts the player made.
 
-This should be impossible if you are a new clone with no memory of prior runs. The game does not explain it. It leaves the player with the question.
+This does not happen on a fixed run number. It happens when the conditions are right — when enough context has been built for the moment to land with weight. The narrative is paced by exploration depth, mission objectives completed, and lore fragments found, not by a timer.
 
 From this point, the player is actively asking: why this nebula? What is the corporation actually searching for? Who built these ships, and why did they all fail? What am I?
 
-Some answers only surface if certain ships were explored in a certain order, or if specific things were discovered across multiple runs. The story is assembled from fragments — never told directly.
+#### Optional Narrative Objectives
+
+Each mission has primary objectives (salvage, escape alive) and optional **narrative objectives** that advance the hidden thread:
+
+- Recover the ship's cargo manifest
+- Access the captain's log
+- Retrieve the black box
+- Find and identify a specific anomaly
+
+These are never required. They go deeper into the ship — into more dangerous territory. The player who ignores them survives more often but understands less. The player who pursues them builds the narrative faster but dies more.
+
+**The narrative thread is a reward for risk.** This is consistent with the game's core principle: every advantage has a cost.
+
+Some answers only surface if certain objectives were completed across multiple runs, or if specific things were discovered in a certain order. The story is assembled from fragments — never told directly.
 
 The player who finishes run twelve may suddenly understand something about run three.
 
