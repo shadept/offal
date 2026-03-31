@@ -47,23 +47,25 @@
 - [ ] 🔴 Tile renderer (Phaser tilemap or manual sprite grid)
 - [ ] 🔴 Camera follows player entity
 - [ ] 🔴 Phaser game loop runs at 60fps — game logic updates on turn tick only, render updates every frame
-- [ ] 🔴 Visual event queue: turn logic emits visual events `{type, entity, from, to, duration, ...}`; visual layer executes them; next turn waits for queue to drain
+- [ ] 🔴 Turn state machine: `PLAYER_INPUT → PROCESSING → ANIMATION → ENEMY_TURN → ANIMATION → PLAYER_INPUT`
+- [ ] 🔴 Visual event queue: array of `{type, targets, config, onComplete?}`. Logic pushes events; visual layer drains them sequentially via `onComplete` callbacks
+- [ ] 🔴 **Logic is tentative until animation completes**: damage and effects apply at the moment their visual event resolves, not when they are queued. This matches player perception — damage happens when the projectile arrives, not when the turn was calculated.
 - [ ] 🔴 Skip/accelerate: player can hold a key to drain visual queue instantly (for fast play)
 - [ ] 🟡 Basic tile types: floor, wall, door (open/closed)
 - [ ] 🟡 Field of view — tiles revealed by line-of-sight
-- [ ] 🟡 Ambient visual layer: particle emitters and tweens for environmental detail (sparks, flickers) run independently of turn system
+- [ ] 🟡 Ambient visual layer: Phaser particle emitters and loops run outside the turn system — fire, sparks, idle animations never stop
 
 ### Visual Event Types (implement as needed per phase)
-- [ ] 🔴 `move`: entity tween from tile A to tile B (Phase 1)
-- [ ] 🔴 `idle`: entity idle animation loop, never stops (Phase 1)
-- [ ] 🟡 `projectile`: sprite flies from origin to target, then hit effect (Phase 4)
-- [ ] 🟡 `fire_spread`: ignition animation on newly burning tile (Phase 3)
-- [ ] 🟡 `explosion`: particles + screen shake + sound (Phase 3)
-- [ ] 🟡 `death`: death animation before entity removal (Phase 4)
-- [ ] 🟡 `fluid_spread`: fluid visually flows to new tile (Phase 3)
-- [ ] 🟡 `status_apply`: brief visual indicator when status effect applied (Phase 4)
-- [ ] ⚪ `screen_shake`: camera shake on impact/explosion
-- [ ] ⚪ `hit_flash`: entity flashes white on damage
+- [ ] 🔴 `move`: entity tween A→B via `this.tweens.add`, `onComplete` advances queue (Phase 1)
+- [ ] 🔴 `idle`: looping sprite animation, never gated by turn state (Phase 1)
+- [ ] 🟡 `projectile`: sprite flies origin→target, `onComplete` applies damage and advances queue (Phase 4)
+- [ ] 🟡 `fire_spread`: ignition particle burst on newly burning tile (Phase 3)
+- [ ] 🟡 `explosion`: particles + `this.cameras.main.shake()` + sound (Phase 3)
+- [ ] 🟡 `death`: death animation, `onComplete` removes entity (Phase 4)
+- [ ] 🟡 `fluid_spread`: fluid alpha fade-in on new tile (Phase 3)
+- [ ] 🟡 `status_apply`: floating icon or tint flash (Phase 4)
+- [ ] 🟡 `hit_flash`: tint to white/red then restore, `onComplete` advances queue (Phase 4)
+- [ ] ⚪ `screen_shake`: `cameras.main.shake(duration, intensity)` (Phase 4)
 
 ### ECS Foundation
 - [ ] 🔴 Position component
