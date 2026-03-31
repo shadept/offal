@@ -159,7 +159,6 @@ Everything in the world — solid, fluid, gas, limb, item, tile — can have the
 | `flammability` | 0–1 | How readily it ignites. 0 = fireproof. 1 = ignites immediately. |
 | `conductivity` | 0–1 | Electrical conductivity. High = electricity propagates through it. |
 | `hardness` | 0–1 | Resistance to cutting and impact. Affects weapon penetration. |
-| `density` | 0–1 | For fluids: how slowly it spreads across tiles. A dense fluid pools; a thin fluid runs. Not applicable to gases — gas behaviour is governed by pressure. |
 | `viscosity` | 0–1 | For fluids: resistance to flow. High viscosity slows entities moving through or coated in it. |
 | `corrosiveness` | 0–1 | Degrades materials in contact over time. Affects metals primarily. |
 | `toxicity` | 0–1 | Harmful to organic entities that inhale or contact it. Damages lungs and tissue. |
