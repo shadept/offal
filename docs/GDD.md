@@ -32,6 +32,14 @@ The crafting system reasons over **properties and tags**, not item IDs.
 
 ---
 
+## Design Philosophy
+
+**Depth over complexity.** Depth is when existing rules produce consequences the player can anticipate. Complexity is when the player needs to learn new rules to understand what's happening. Every system should pass this test: can the player infer the consequence before reading it?
+
+**Healthy systems are invisible.** Organs, capacities, and StatusEffects should not generate noise when functioning normally. Only surface information when it becomes relevant — when damage starts to matter, not before. The player should never feel monitored; they should feel like they're discovering things.
+
+---
+
 ## Core Principles
 
 These apply to every design decision:
