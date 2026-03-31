@@ -47,9 +47,23 @@
 - [ ] 🔴 Tile renderer (Phaser tilemap or manual sprite grid)
 - [ ] 🔴 Camera follows player entity
 - [ ] 🔴 Phaser game loop runs at 60fps — game logic updates on turn tick only, render updates every frame
+- [ ] 🔴 Visual event queue: turn logic emits visual events `{type, entity, from, to, duration, ...}`; visual layer executes them; next turn waits for queue to drain
+- [ ] 🔴 Skip/accelerate: player can hold a key to drain visual queue instantly (for fast play)
 - [ ] 🟡 Basic tile types: floor, wall, door (open/closed)
 - [ ] 🟡 Field of view — tiles revealed by line-of-sight
 - [ ] 🟡 Ambient visual layer: particle emitters and tweens for environmental detail (sparks, flickers) run independently of turn system
+
+### Visual Event Types (implement as needed per phase)
+- [ ] 🔴 `move`: entity tween from tile A to tile B (Phase 1)
+- [ ] 🔴 `idle`: entity idle animation loop, never stops (Phase 1)
+- [ ] 🟡 `projectile`: sprite flies from origin to target, then hit effect (Phase 4)
+- [ ] 🟡 `fire_spread`: ignition animation on newly burning tile (Phase 3)
+- [ ] 🟡 `explosion`: particles + screen shake + sound (Phase 3)
+- [ ] 🟡 `death`: death animation before entity removal (Phase 4)
+- [ ] 🟡 `fluid_spread`: fluid visually flows to new tile (Phase 3)
+- [ ] 🟡 `status_apply`: brief visual indicator when status effect applied (Phase 4)
+- [ ] ⚪ `screen_shake`: camera shake on impact/explosion
+- [ ] ⚪ `hit_flash`: entity flashes white on damage
 
 ### ECS Foundation
 - [ ] 🔴 Position component

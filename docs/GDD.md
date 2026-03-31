@@ -39,6 +39,8 @@ The comedy is not written in. It emerges from consistent systems meeting player 
 
 **Logic is turn-based. Visuals never stop.** Game state advances in turns. The visual layer runs continuously at 60fps regardless of whether the player is acting. Fire animates. Creatures breathe. Exposed wires spark. Alert lights pulse. Console screens flicker. The world feels alive even when waiting for input. These are not gameplay systems — they are visual detail layered on top of game state, and they must be present from the first prototype.
 
+**Turns are instant. Animations are not.** When a turn resolves, the logic is applied immediately — an entity moved, a projectile hit, fire spread. But the *visual* representation of those events plays out over time. Movement is a tween from tile A to tile B. A projectile is a sprite that flies to its target before damage is shown. Fire spreading to a new tile has an ignition animation. Explosions have particles, screen shake, and sound — all triggered by the logical event. The next turn does not advance until the visual queue is empty (with an option to skip for speed). This is **event-driven visual interpolation**: the logic produces a queue of visual events, the visual layer executes them, then the game continues.
+
 ---
 
 ## 2. Body System
