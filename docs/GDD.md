@@ -367,17 +367,40 @@ A second silent threshold triggers the return mission: back to a ship the player
 
 The ending is not a cutscene. It is a world state that emerges from what the player did across Acts I and II.
 
-**The question** can be asked at any point — it is not tied to Act II completion. The question is not dialogue. It is an action: the player assembles the artefacts they've been recovering into something larger. A device. A weapon. A key. Something the corporation has been trying to build for reasons the player now understands.
+**The question** can be asked at any point. The question is not dialogue. It is an action: the player assembles the artefacts into something the corporation has been trying to build — and does it before they do.
 
-If the player assembles it first: **Path A.** The corporation knows. Act III begins with the player holding power the corporation needs. The missions become offensive — familiar ships revisited with new purpose, the corporation now the aggressor. The player knows these ships. The player has the advantage.
+The artefacts are in the hub. After each recovery mission, the corporation takes them. They keep them somewhere in the hub — displayed, catalogued, guarded. The player has always been able to see them. The player has always been able to try to take them.
 
-If the corporation assembles it first: **Path B.** The player never made the connection, or didn't act in time. Act III begins from below — the corporation has activated whatever the device does, and the player is now playing catch-up. Harder. Not impossible.
+From the first time they arrive at the hub, they can open fire. The corporation eliminates them immediately. This is visible, learnable, and intentional — the player sees the possibility and the consequence from the start.
 
-**Both paths end the same way: bring down the corporation.** The difference is the quality of the victory. Path A is revenge with leverage. Path B is resistance against the odds.
+**The hub is the final dungeon. It was always there.**
 
-The player only discovers which path they're on when Act III begins. There is no "you missed your window" screen — there are consequences.
+To succeed, the player must complete a sequence that uses every system they've learned across all their runs:
 
-This means Act III has two design variants. Both are TBD until Acts I and II are playable. The branching point is the player's action (or inaction) with the artefacts — not a dialogue choice, not a timed event.
+1. **Build a character strong enough** — skills, body, equipment accumulated across runs. No single run is enough; this is the meta-progression paying off.
+
+2. **Disable the kill switch** — the corporation has a remote kill on every clone. The player learns this exists through lore fragments, not a tutorial. Disabling it requires discovering where the mechanism is (probably a specific mission or a hidden action within the hub itself) and executing without triggering it.
+
+3. **Access the artefacts** — the hub's secured section. Three approaches, all viable, all requiring different skill combinations built over many runs:
+   - **Stealth**: bypass security undetected — requires high Stealth skill and knowledge of hub layout
+   - **Force**: fight through — requires a sufficiently powerful body and combat skills; possible but expensive
+   - **Manipulation**: exploit internal faction dynamics within the corporation — requires knowledge earned from lore fragments and NPC interactions across runs
+
+4. **Assemble the device** — the final act. Can be done in secret (Path A silent) or openly after confrontation (Path A direct).
+
+**No single skill is enough. The player needs a combination built across all their runs.** This is the whole game as tutorial for this moment.
+
+If the corporation assembles it first: **Path B.** The player is now playing from below — the corporation has activated the device. Same final objective, different starting position.
+
+**Both paths end the same way: bring down the corporation.**
+
+#### The Meta-Narrative
+
+The hub was never a safe zone. It was always a puzzle. The player who reaches this point and looks back will see that all the signals were there from the start — the guarded cases in the museum wing, the kill switch they felt but couldn't name, the factions within the corporation that don't fully agree with each other.
+
+The corporation was never afraid of the clones. Until one of them got far enough.
+
+This means Act III has two design variants. Both are TBD until Acts I and II are playable. The branching point is the player's action — not a dialogue choice, not a timed event.
 
 ---
 
