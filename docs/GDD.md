@@ -305,15 +305,64 @@ Runs are not independent. A non-obvious narrative connects them — one the play
 
 **Narrative pacing across runs:**
 
+The game is structured in acts. Each act has a narrative function and a mechanical function — they are not separate.
+
+---
+
+#### Tutorial — The First Ship
+
+Always the same ship. Always the same layout. Built to teach without appearing to teach.
+
+The player learns by consequence, not instruction:
+- Fire spreads because a pipe burst, not because a tooltip said so
+- Water extinguishes fire because there's a hose on the wall
+- Steam builds pressure because they sealed a room with both active
+- Pressure ruptures the compartment because they didn't leave in time
+- They wake up in the hub as a new clone — the first signal that something is wrong
+
+The tutorial ends in death. This is by design. It establishes the loop and plants the first seed of unease — the corporation treated the death as routine.
+
+---
+
+#### Act I — Learning the Loop
+
+**Mechanical goal**: ensure the player never feels stuck. Meta-progression must be legible — the player should understand what they're accumulating and why it matters. By the end of Act I, they have made at least one meaningful choice in the hub that changed how a run played out.
+
+**Narrative beat**: a milestone of meta-progression unlocks a mission that leads to a ship with an unexpected occupant — a body. Not their previous run's body. A body from before the player took control. A clone they have no memory of.
+
+The body has a note. The note is written by the clone to themselves — not to the player. It records a specific observation, a date, an inconsistency. It does not say "the corporation is lying." It says something concrete that the player can verify in future missions if they're paying attention.
+
+The player who reads it carefully has a question. The player who skims it will remember it later, when something else confirms what the note implied.
+
+**The corporation's trustworthiness is earned through doubt, not declared through exposition.**
+
+---
+
+#### Act II — The Thread Tightens
+
+**Mechanical goal**: the player is now operating with meta-progression that meaningfully affects their starting position. Runs feel different from each other. The adaptive ecology is demonstrably responding to their playstyle.
+
+**Narrative beat**: a return mission — back to a ship the player actually visited. Somewhere in it is their own previous character, in exactly the state they left them.
+
+This does not happen on a fixed run number. It happens when the conditions are right — enough context built for the moment to land.
+
+From this point, the player is actively asking: why this nebula? What is the corporation actually searching for? Who built these ships? What am I?
+
+---
+
+#### Act III — Answers
+
+The largest ships. The most complex situations. The narrative thread becomes explicit — not all at once, but enough that the player who has been paying attention can assemble the picture.
+
+Scope TBD — Act III is not designed until Acts I and II are playable and the narrative direction is confirmed by play.
+
+---
+
 **Phase 1 — First run.** The mission is legitimate. The corporation is a normal employer. The nebula is a salvage zone. Subtle signals that something is off, but ambiguous enough to dismiss — lore fragments that don't quite add up, a ship layout that implies something was being hidden rather than stored.
 
 **Phase 2 — Early runs.** The corporation responds to the player's deaths with unsettling efficiency. The briefings are form letters. The knowledge extracted from dead clones is catalogued and filed. The player starts to notice patterns in the lore fragments across different ships.
 
-**Phase 3 — The return.** The player is sent back to a ship they've visited before. Somewhere in it is their own previous character — dead, in exactly the state they left them. Wearing the equipment the player chose. Bearing the grafts the player made.
-
-This does not happen on a fixed run number. It happens when the conditions are right — when enough context has been built for the moment to land with weight. The narrative is paced by exploration depth, mission objectives completed, and lore fragments found, not by a timer.
-
-From this point, the player is actively asking: why this nebula? What is the corporation actually searching for? Who built these ships, and why did they all fail? What am I?
+**Phase 3 — The return.** Covered in Act II above.
 
 #### Optional Narrative Objectives
 
