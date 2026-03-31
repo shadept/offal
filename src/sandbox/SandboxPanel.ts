@@ -560,6 +560,7 @@ export class SandboxPanel {
     this.entityInspectEl.appendChild(entLabel);
 
     const AI_BEHAVIOURS: Record<number, string> = { 0: 'Idle', 1: 'Wander', 2: 'Seek' };
+    const aiState = info.hasAI ? (AI_BEHAVIOURS[info.aiBehaviour] ?? `Unknown(${info.aiBehaviour})`) : 'None';
     const lines: [string, string][] = [
       ['EID', String(info.eid)],
       ['Position', `(${info.position.x}, ${info.position.y})`],
@@ -569,7 +570,11 @@ export class SandboxPanel {
       ['Energy', info.energy.toFixed(0)],
       ['Speed', info.speed.toFixed(0)],
       ['FOV Range', String(info.fovRange)],
-      ['AI', info.hasAI ? (AI_BEHAVIOURS[info.aiBehaviour] ?? `Unknown(${info.aiBehaviour})`) : 'None'],
+      ['AI', aiState],
+      ...(info.hasAI ? [
+        ['Target', info.aiTargetEid >= 0 ? `EID ${info.aiTargetEid}` : 'None'] as [string, string],
+        ['Path Len', info.aiTargetEid >= 0 ? String(info.aiPathLength) : '-'] as [string, string],
+      ] : []),
     ];
 
     for (const [label, value] of lines) {

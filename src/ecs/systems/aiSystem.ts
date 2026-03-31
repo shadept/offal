@@ -16,11 +16,42 @@ import {
 } from '../components';
 import { areHostile } from '../factions';
 import { TileMap } from '../../map/TileMap';
+import { getRegistry } from '../../data/loader';
 import type { VisualEvent } from '../../types';
 import type { VisualEventQueue } from '../../visual/EventQueue';
 
 /** Standard action cost */
 const ACTION_COST = 100;
+
+/** Check if a tile is a closed door that can be opened. */
+function isClosedDoor(map: TileMap, x: number, y: number): boolean {
+  const tileIndex = map.get(x, y);
+  const tileData = getRegistry().tilesByIndex.get(tileIndex);
+  return !!(tileData?.interactable && tileData.opensTo);
+}
+
+/** Open a closed door tile: enqueue visual event + commit map change. */
+function openDoor(
+  eid: number,
+  x: number, y: number,
+  map: TileMap,
+  eventQueue: VisualEventQueue,
+): void {
+  const tileIndex = map.get(x, y);
+  const tileData = getRegistry().tilesByIndex.get(tileIndex);
+  if (!tileData?.opensTo) return;
+  const openTile = getRegistry().tiles.get(tileData.opensTo);
+  if (!openTile) return;
+
+  const doorEvent: VisualEvent = {
+    type: 'door_open',
+    entityId: eid,
+    data: { x, y },
+  };
+  eventQueue.push(doorEvent, () => {
+    map.set(x, y, openTile.index);
+  });
+}
 
 /** Cardinal directions */
 const DIRS = [
@@ -55,6 +86,7 @@ export function processAITurns(
     const target = findNearestHostile(eid, allCombatants, map, world);
 
     if (target !== -1) {
+      AI.targetEid[eid] = target;
       const dist = chebyshev(
         Position.x[eid], Position.y[eid],
         Position.x[target], Position.y[target],
@@ -71,6 +103,7 @@ export function processAITurns(
       }
     } else {
       // No hostile in range — wander
+      AI.targetEid[eid] = -1;
       AI.behaviour[eid] = AIBehaviour.WANDER;
       wander(eid, map, world, eventQueue, pendingTiles);
     }
@@ -135,6 +168,13 @@ function wander(
     const nx = x + dx;
     const ny = y + dy;
     if (!map.inBounds(nx, ny)) continue;
+
+    // If closed door, open it and end turn
+    if (isClosedDoor(map, nx, ny)) {
+      openDoor(eid, nx, ny, map, eventQueue);
+      return;
+    }
+
     if (map.blocksMovement(nx, ny)) continue;
     if (isTileOccupied(nx, ny, eid, world)) continue;
     const key = `${nx},${ny}`;
@@ -166,6 +206,11 @@ function seekToward(
     // If next step IS the target tile, attack instead of moving onto it
     if (step.x === tx && step.y === ty) {
       performAttack(eid, target, world, eventQueue);
+      return;
+    }
+    // If next step is a closed door, open it and end turn
+    if (isClosedDoor(map, step.x, step.y)) {
+      openDoor(eid, step.x, step.y, map, eventQueue);
       return;
     }
     // Block if tile is occupied or already claimed this batch
@@ -220,10 +265,12 @@ function bfsNextStep(
       // Distance check to limit BFS scope
       if (chebyshev(sx, sy, nx, ny) > maxRange) continue;
 
-      // Allow walking to the target tile even if occupied
+      // Allow walking to the target tile even if occupied.
+      // Treat closed doors as traversable (AI will open them).
       const isTarget = (nx === tx && ny === ty);
-      if (!isTarget && map.blocksMovement(nx, ny)) continue;
-      if (!isTarget && isTileOccupied(nx, ny, eid, world)) continue;
+      const isDoor = isClosedDoor(map, nx, ny);
+      if (!isTarget && !isDoor && map.blocksMovement(nx, ny)) continue;
+      if (!isTarget && !isDoor && isTileOccupied(nx, ny, eid, world)) continue;
 
       visited.add(nk);
       parent.set(nk, cur);
@@ -297,4 +344,66 @@ function isTileOccupied(x: number, y: number, excludeEid: number, world: object)
 /** Chebyshev distance. */
 function chebyshev(x1: number, y1: number, x2: number, y2: number): number {
   return Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
+}
+
+// ═══════════════════════════════════════════════════════════
+// DEBUG — exported for sandbox AI overlay
+// ═══════════════════════════════════════════════════════════
+
+/** BFS full path from (sx,sy) to (tx,ty). Returns all tiles in path order (excluding start). */
+export function bfsFullPath(
+  sx: number, sy: number,
+  tx: number, ty: number,
+  map: TileMap,
+  eid: number,
+  world: object,
+): { x: number; y: number }[] {
+  const maxRange = 20;
+  const visited = new Set<number>();
+  const parent = new Map<number, number>();
+
+  const key = (x: number, y: number) => y * map.width + x;
+  const startKey = key(sx, sy);
+  const targetKey = key(tx, ty);
+
+  visited.add(startKey);
+  const queue: number[] = [startKey];
+
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    const cx = cur % map.width;
+    const cy = (cur - cx) / map.width;
+
+    if (cur === targetKey) {
+      // Trace back full path
+      const path: { x: number; y: number }[] = [];
+      let step = cur;
+      while (step !== startKey) {
+        path.push({ x: step % map.width, y: (step - step % map.width) / map.width });
+        step = parent.get(step)!;
+      }
+      path.reverse();
+      return path;
+    }
+
+    for (const { dx, dy } of DIRS) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (!map.inBounds(nx, ny)) continue;
+      const nk = key(nx, ny);
+      if (visited.has(nk)) continue;
+      if (chebyshev(sx, sy, nx, ny) > maxRange) continue;
+
+      const isTarget = (nx === tx && ny === ty);
+      const isDoor = isClosedDoor(map, nx, ny);
+      if (!isTarget && !isDoor && map.blocksMovement(nx, ny)) continue;
+      if (!isTarget && !isDoor && isTileOccupied(nx, ny, eid, world)) continue;
+
+      visited.add(nk);
+      parent.set(nk, cur);
+      queue.push(nk);
+    }
+  }
+
+  return [];
 }

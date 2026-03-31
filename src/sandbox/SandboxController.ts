@@ -14,7 +14,8 @@ import { getRegistry } from '../data/loader';
 import type { SpeciesData } from '../types';
 import type { TurnSystem } from '../ecs/systems/turnSystem';
 import type { VisualEventQueue } from '../visual/EventQueue';
-import type { SandboxTool, TileInspectData, EntityInspectData } from './types';
+import { bfsFullPath } from '../ecs/systems/aiSystem';
+import type { SandboxTool, TileInspectData, EntityInspectData, AIDebugData } from './types';
 
 const VIS_NAMES: Record<number, string> = {
   [Visibility.UNSEEN]: 'Unseen',
@@ -136,6 +137,15 @@ export class SandboxController {
     const speciesId = Renderable.spriteIndex[eid];
     const factionIdx = hasComponent(this.world, eid, Faction) ? Faction.factionIndex[eid] : 255;
     const factionName = getFactionId(factionIdx) ?? 'none';
+    const aiTargetEid = hasAI ? AI.targetEid[eid] : -1;
+    // Compute path length for debug
+    let aiPathLength = 0;
+    if (hasAI && aiTargetEid >= 0) {
+      const tx = Position.x[aiTargetEid];
+      const ty = Position.y[aiTargetEid];
+      const path = bfsFullPath(Position.x[eid], Position.y[eid], tx, ty, this.tileMap, eid, this.world);
+      aiPathLength = path.length;
+    }
     return {
       eid,
       position: { x: Position.x[eid], y: Position.y[eid] },
@@ -147,11 +157,33 @@ export class SandboxController {
       isPlayer: players.includes(eid),
       hasAI,
       aiBehaviour: hasAI ? AI.behaviour[eid] : 0,
+      aiTargetEid,
+      aiPathLength,
       hp: hasComponent(this.world, eid, Health) ? Health.hp[eid] : 0,
       maxHp: hasComponent(this.world, eid, Health) ? Health.maxHp[eid] : 0,
       faction: factionName,
       attackDamage: hasComponent(this.world, eid, CombatStats) ? CombatStats.attackDamage[eid] : 0,
     };
+  }
+
+  /** Get AI debug overlay data for a given entity. */
+  getAIDebugData(eid: number): AIDebugData | null {
+    const aiEntities = query(this.world, [AI]);
+    if (!aiEntities.includes(eid)) return null;
+
+    const behaviour = AI.behaviour[eid];
+    const targetEid = AI.targetEid[eid];
+    let path: { x: number; y: number }[] = [];
+    let targetTile: { x: number; y: number } | null = null;
+
+    if (targetEid >= 0 && !hasComponent(this.world, targetEid, Dead)) {
+      const tx = Position.x[targetEid];
+      const ty = Position.y[targetEid];
+      targetTile = { x: tx, y: ty };
+      path = bfsFullPath(Position.x[eid], Position.y[eid], tx, ty, this.tileMap, eid, this.world);
+    }
+
+    return { path, targetTile, behaviour, targetEid };
   }
 
   /** Get all species available for spawning (non-playerStart) */

@@ -35,6 +35,7 @@ export const FOV = soa({
 // behaviour: 0 = idle, 1 = wander, 2 = seek
 export const AI = soa({
   behaviour: new Uint8Array(MAX_ENTITIES),
+  targetEid: new Int32Array(MAX_ENTITIES), // -1 = no target
 });
 
 export const AIBehaviour = {
