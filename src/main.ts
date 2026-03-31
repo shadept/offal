@@ -10,6 +10,9 @@ const game = new Phaser.Game({
   parent: document.body,
   scene: [BootScene, GameScene],
   pixelArt: true,
+  input: {
+    keyboard: true,
+  },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

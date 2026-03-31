@@ -10,6 +10,14 @@
   </style>
 </head>
 <body>
+  <script>
+    window.onerror = function(msg, src, line, col, err) {
+      var d = document.createElement('pre');
+      d.style.cssText = 'color:#f44;background:#111;padding:1em;margin:1em;font-size:14px;white-space:pre-wrap;z-index:9999;position:fixed;top:0;left:0;right:0';
+      d.textContent = msg + '\n' + (src || '') + ':' + line + ':' + col + '\n' + (err && err.stack || '');
+      document.body.appendChild(d);
+    };
+  </script>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
