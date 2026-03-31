@@ -242,6 +242,36 @@ All of this is data. The AI system runs perception and faction rules; it does no
 
 Death is not a failure state. It is a step back — a return to the hub with everything you learned, ready to approach the next mission differently.
 
+### Character Skills
+
+Individual characters improve through use — not through XP allocation, but through doing. Using pistols improves Firearms. Crafting improves Crafting. Hacking improves Hacking. Skills are internal and unique to each character.
+
+Skills affect tangible outcomes: aiming speed, reload time, crafting success rate, hacking time, cooking quality. They are not abstract multipliers — they change what the character can attempt and how reliably.
+
+**Death means losing these skills.** This is what makes individual death painful even when it isn't frustrating — you are losing real, earned capability, not just a number.
+
+Skills that make sense to model (non-exhaustive, data-driven):
+
+| Skill | Improves with | Effect |
+|---|---|---|
+| Firearms | Using ranged weapons | Aim speed, accuracy, reload time |
+| Melee | Melee attacks | Hit chance, timing windows |
+| Crafting | Crafting items | Success rate, recipe discovery, material efficiency |
+| Hacking | Hacking terminals/systems | Speed, success chance, fewer alarms |
+| Medicine | Treating wounds, grafting | Bleed reduction speed, graft success rate, infection treatment |
+| Stealth | Moving undetected | Noise reduction, detection threshold |
+| Athletics | Moving, dodging | Speed, dodge chance, encumbrance tolerance |
+
+Skills are defined in data. The engine applies them generically. New skills can be added without code changes.
+
+#### Skills and Meta-Progression
+
+Meta-resources can be spent in the hub on **starting implants and prosthetics** that provide a skill floor for the next character. A neural implant gives a Hacking base. Robotic arms give a Firearms and Melee base.
+
+These floors do not replace earned skill — they reduce the time to reach meaningful competence. A new character with a Firearms implant is not as good as a veteran who earned the same skill level through combat, but they don't start from zero.
+
+This creates hub decisions with real tradeoffs: spend materials on skill floors (faster ramp-up) or on consumables and equipment (better early survival)?
+
 ### The Hub
 
 A persistent location between missions (a salvage station, an abandoned relay — TBD by narrative). The hub is where meta-progress lives. Your character does not persist; your knowledge and resources do.
