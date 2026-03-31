@@ -87,21 +87,39 @@
 *Goal: toggle sandbox panel, spawn entities, inspect tiles.*
 
 ### Sandbox Panel
-- [ ] 🔴 Toggle key (e.g. Tab) switches between game mode and sandbox mode
-- [ ] 🔴 Sidebar panel (HTML overlay on Phaser canvas)
-- [ ] 🔴 Click tile → inspect panel shows tile state (type, fluid, gas, temperature, surface)
-- [ ] 🔴 Click entity → inspect panel shows entity components
-- [ ] 🟡 Tile painter: select tile type, click to place
-- [ ] 🟡 Entity spawner: select species from list, click to place
-- [ ] 🟡 Fluid placer: select fluid type, click to add concentration to tile
-- [ ] 🟡 Gas placer: select gas type, click to add concentration to tile
-- [ ] 🟡 Event trigger: buttons for fire/charge/breach on selected tile
+- [x] ✅ Toggle key (Tab) switches between game mode and sandbox mode
+- [x] ✅ Sidebar panel (HTML overlay on Phaser canvas)
+- [x] ✅ Click tile → inspect panel shows tile state (type, material, visibility, light; fluid/gas/temperature scaffolded for Phase 3)
+- [x] ✅ Click entity → inspect panel shows entity components (position, energy, speed, FOV, AI)
+- [x] ✅ Tile painter: select tile type from data-driven list, click to place
+- [x] ✅ Entity spawner: select species from data-driven list, click to place
+- [ ] 🟡 Fluid placer: select fluid type, click to add concentration to tile (UI scaffolded, blocked by Phase 3)
+- [ ] 🟡 Gas placer: select gas type, click to add concentration to tile (UI scaffolded, blocked by Phase 3)
+- [ ] 🟡 Event trigger: buttons for fire/charge/breach on selected tile (UI scaffolded, blocked by Phase 3)
 
 ### Simulation Control
-- [ ] 🟡 Manual turn advance (press N in sandbox = advance one turn for all entities)
-- [ ] 🟡 Auto-play toggle (simulation runs without player input)
-- [ ] 🟡 Speed control (turns per second in auto-play)
-- [ ] 🟡 AI-only mode (remove player control, watch AI vs AI)
+- [x] ✅ Manual turn advance (press N in sandbox = advance one turn for all entities)
+- [x] ✅ Auto-play toggle (simulation runs without player input)
+- [x] ✅ Speed control (turns per second in auto-play)
+- [ ] 🟡 AI-only mode (remove player control, watch AI vs AI) (UI scaffolded, blocked by Phase 4)
+
+### Data-Driven Content (added during Phase 2)
+- [x] ✅ Tile definitions in `data/tiles/*.json5` — material refs, blocksMovement/Light from data
+- [x] ✅ Species definitions in `data/species/*.json5` — speed, fovRange, color, spawnTags
+- [x] ✅ Map definitions in `data/maps/*.json5` — character grid with legend, player spawn, entity spawns
+- [x] ✅ Map loader replaces hardcoded test map; test_ship.json5 with proper 4-room layout
+- [x] ✅ One definition per file across all data types
+- [x] ✅ TileMap, movement system, inspector all read properties from data registry
+
+### AI Foundation (added during Phase 2)
+- [x] ✅ AI component (behaviour field, default: idle)
+- [x] ✅ AI system processes all AI entities per turn (idle = consume energy)
+- [x] ✅ Spawned entities get AI component, idle through turns without freezing
+
+### HUD
+- [x] ✅ FPS counter (capped at 60)
+- [x] ✅ Sandbox phase indicator
+- [x] ✅ Controls hint includes Tab
 
 **Exit criteria**: can spawn two entities, watch them exist, inspect their state. Can paint tiles and fluids.
 
