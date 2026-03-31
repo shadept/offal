@@ -16,7 +16,7 @@
 
 You are a clone produced by a corporation to salvage derelict ships in the Shipwreck Nebula. You are expendable. When you die, the corporation prints another one and sends them in. The knowledge you accumulate persists; you do not.
 
-The setting is steam-punk biomechanics. Technology and biology have merged over decades of isolation. Creatures aboard these ships are not generic monsters — they evolved, adapted, grafted, and survived. The ships themselves are environments in decay: failing systems, pressurisation leaks, fires, creatures that moved in when the crew moved out.
+The setting is steam-punk biomechanics. Technology and biology have merged over decades of isolation. Creatures aboard these ships are not generic monsters — they evolved, adapted, and survived in isolation. The ships themselves are environments in decay: failing systems, pressurisation leaks, fires, creatures that moved in when the crew moved out.
 
 The comedy is not written in. It emerges from consistent systems meeting player improvisation.
 
@@ -24,9 +24,9 @@ The comedy is not written in. It emerges from consistent systems meeting player 
 
 | Pillar | What it means in practice |
 |---|---|
-| **Every advantage has risk** | Grafting, amputation, body modification — all carry real danger. No free upgrades. |
+| **Every advantage has risk** | Body modification, combat, crafting — all carry real cost. No free upgrades. |
 | **The system is the designer** | Interactions emerge from data rules, not scripted events. Fire burns wood. That's enough. |
-| **The body is progression** | No XP, no levels. What you are is what you've grafted and survived with. |
+| **The body is progression** | No XP, no levels. What you are is what you've built, modified, and survived with. |
 | **The world existed before you** | Factions have agendas. Situations are already in progress when you board. |
 | **Death by accumulation** | Lethal situations are readable before they become fatal. The experienced player wins consistently. |
 | **No correct playstyle** | Stealth, combat, and faction manipulation are structurally equal paths. |
@@ -93,7 +93,7 @@ Every limb has a material with physical properties. The same physics system that
 
 ### 2.5 Internal Organs
 
-Three internal organs live in the torso as non-external slots. They cannot be grafted in normal combat but can be damaged by penetrating attacks or status effects that spread inward.
+Three internal organs live in the torso as non-external slots. They cannot be accessed in normal combat but can be damaged by penetrating attacks or status effects that spread inward.
 
 | Organ | Function | Failure |
 |---|---|---|
@@ -101,13 +101,13 @@ Three internal organs live in the torso as non-external slots. They cannot be gr
 | **Lungs** | Breathing. Linked to oxygen/pressure/gas system. | Faster death in low-O₂ or toxic environments; immune on robotic entities |
 | **Stomach** | Eating heals organic tissue. | Damaged = blocked eating; severe = starvation timer |
 
-The heart is the **natural cap on body evolution**. Grafting past capacity is possible but penalised. Heart upgrades are rare and high-risk — a meaningful progression milestone, not a menu item.
+The heart is the **natural cap on body evolution**. Adding limbs past cardiac capacity is possible but penalised. Heart upgrades are rare and high-risk — a meaningful progression milestone, not a menu item.
 
 The three organs interact: full stomach improves heart efficiency; damaged lungs reduce consciousness; damaged heart starves peripheral limbs before killing.
 
 ### 2.6 Status Effects
 
-Any condition that modifies normal body state is a **StatusEffect** — wounds, diseases, environmental effects, graft states. StatusEffects attach to a slot or globally and modify capacities/stats.
+Any condition that modifies normal body state is a **StatusEffect** — wounds, diseases, environmental effects, attachment states. StatusEffects attach to a slot or globally and modify capacities/stats.
 
 | Status effect | Source | Behaviour |
 |---|---|---|
@@ -115,7 +115,7 @@ Any condition that modifies normal body state is a **StatusEffect** — wounds, 
 | `burning` | Fire contact | Spreads to adjacent flammable limbs |
 | `oxidising` | Metal + water | Progressive degradation |
 | `infected` | Untreated wound | Severity vs immunity race — spreads if severity wins |
-| `rejected` | Material mismatch graft | Timed detachment with additional bleeding |
+| `rejected` | Material mismatch on limb attachment | Timed detachment with additional bleeding |
 | `locomotion_unfamiliar` | Locomotion change | Speed/action penalty, fades with use |
 
 The engine processes StatusEffects generically. New effects are added in data.
@@ -132,13 +132,13 @@ Computed each turn from active slots and status effects. Not stored.
 | Circulation | Heart | Limb performance degrades |
 | Structural Integrity | Torso/core | Death |
 
-### 2.8 Limb Loss and Grafting
+### 2.8 Limb Loss and Attachment
 
-**Limb loss** (combat or voluntary): limb drops as floor item, slot becomes stump, `bleeding` applied. Treatment required: bandage (reduces severity), cauterise (stops bleed, damages stump), medical item (stops + heals), organic graft (seals wound on attachment).
+**Limb loss** (combat or voluntary): limb drops as floor item, slot becomes stump, `bleeding` applied. Treatment required: bandage (reduces severity), cauterise (stops bleed, damages stump), medical item (stops + heals), organic limb attached to stump seals the wound.
 
 **Voluntary amputation**: available with any bladed item. Confirmed action. Causes `bleeding` immediately. The severed limb drops and can be picked up. There is no safe amputation.
 
-**Grafting**: costs turns. Requires compatible slot, manageable bleed level, compatible size. Material mismatch applies `rejected` status effect. Grafting is never free.
+**Attaching a limb to a stump**: costs turns. Requires compatible slot, manageable bleed level, compatible size. Material mismatch applies `rejected` status effect. Body modification is never free.
 
 ---
 
@@ -233,7 +233,7 @@ Skills improve through use. No XP allocation.
 | Melee | Melee combat | Hit chance, timing |
 | Crafting | Crafting items | Success rate, material efficiency |
 | Hacking | Hacking terminals | Speed, success chance, alarm reduction |
-| Medicine | Treating wounds, grafting | Bleed rate, graft success, infection treatment |
+| Medicine | Treating wounds, body modification | Bleed rate, attachment success, infection treatment |
 | Stealth | Moving undetected | Noise reduction, detection threshold |
 | Athletics | Movement, dodging | Speed, encumbrance tolerance |
 
@@ -246,12 +246,12 @@ Three persistent resources, accumulated across runs:
 | Resource | Earned by | Unlocks |
 |---|---|---|
 | Materials | Extracted loot | Starting equipment, consumables, prosthetics |
-| Biological knowledge | Grafting limbs, analysing creatures | New starting species, new limb types |
+| Biological knowledge | Body modification, analysing creatures | New starting species, new limb types |
 | Technological knowledge | Crafting, analysing ship tech | Starting recipes, better tools |
 
 Before each run, the player configures a starting loadout using these resources. Starting implants and prosthetics provide skill floors — they reduce ramp-up time but do not replace earned skill.
 
-Death advances meta-progress. A run where you graft five limb types and die at the last deck still unlocks biological knowledge. Progress is never fully wasted.
+Death advances meta-progress. A run where you modify your body extensively and die at the last deck still unlocks biological knowledge. Progress is never fully wasted.
 
 ### 8.3 The Hub
 
@@ -278,7 +278,7 @@ Small ships. The player learns meta-progression is real and compounds. A silent 
 > *Status: mechanics defined. Specific note content TBD.*
 
 **Act II — The thread tightens**  
-Larger ships. More exotic objectives. Clinical briefings that don't match what the player finds: corporate bodies in unlogged ships, artefacts with no manifest origin, evidence of failed missions the hub never mentioned. A second silent threshold triggers a return to a ship the player actually visited. Their own previous character is there, in the state they died. The body is lootable. The player's previous limbs are graftable.
+Larger ships. More exotic objectives. Clinical briefings that don't match what the player finds: corporate bodies in unlogged ships, artefacts with no manifest origin, evidence of failed missions the hub never mentioned. A second silent threshold triggers a return to a ship the player actually visited. Their own previous character is there, in the state they died. The body is lootable. The player's previous limbs can be recovered and reattached.
 > *Status: structure defined. Specific artefacts and lore fragments TBD.*
 
 **Act III — The reckoning**  
