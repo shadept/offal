@@ -139,6 +139,20 @@ Each room function has a pool of possible layouts, loot tables, and population t
 
 Faction relations are defined in data. Default relations create emergent conflict: security attacks pirates attacks creatures attacks everyone. The player can exploit these conflicts intentionally.
 
+#### Arrival State
+
+When the player boards a ship, the situation is already in progress. An **arrival state** is generated at run start — a snapshot of what was happening aboard before the player arrived:
+
+- Pirates mid-heist, still fighting security in the upper decks
+- A predator recently freed from a specimen hold, currently hunting in the corridors
+- Survivors barricaded in the cafeteria, the path around them relatively clear
+- Security fully functional and on high alert after a breach elsewhere
+- A gas leak slowly spreading through the engineering section
+
+The player cannot control the arrival state — but they can read it and act on it. Waiting for two factions to destroy each other is a valid strategy. Sneaking past an active firefight, using the noise as cover, is a valid strategy. Charging in while everything is already distracted is also valid.
+
+This makes every run feel like a situation, not a level. The question is not "clear the dungeon" but "what's happening here, and how do I survive it?"
+
 #### Perception System
 
 Entities perceive the world through data-defined sense profiles — not hardcoded detection logic:
