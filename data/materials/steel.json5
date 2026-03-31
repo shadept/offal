@@ -1,0 +1,9 @@
+{
+  id: "steel",
+  name: "Steel",
+  flammability: 0.0,
+  conductivity: 0.8,
+  hardness: 0.7,
+  mass: 0.8,
+  color: "#556677",
+}

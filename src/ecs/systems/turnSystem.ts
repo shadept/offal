@@ -135,4 +135,15 @@ export class TurnSystem {
     this.pendingAction = { dx, dy };
     this.phase = TurnPhase.PROCESSING;
   }
+
+  /**
+   * Force one complete turn cycle (sandbox mode).
+   * Ticks energy for all entities, increments turn count,
+   * and resets phase to PLAYER_INPUT.
+   */
+  forceTick(world: object): void {
+    this.tickEnergy(world);
+    this.turnCount++;
+    this.phase = TurnPhase.PLAYER_INPUT;
+  }
 }

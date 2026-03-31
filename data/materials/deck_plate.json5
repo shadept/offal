@@ -1,0 +1,9 @@
+{
+  id: "deck_plate",
+  name: "Deck Plate",
+  flammability: 0.05,
+  conductivity: 0.4,
+  hardness: 0.6,
+  mass: 0.7,
+  color: "#2a2a3e",
+}

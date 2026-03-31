@@ -22,6 +22,7 @@ export const SpriteIndex = {
   WALL: 2,
   DOOR_CLOSED: 3,
   DOOR_OPEN: 4,
+  NPC: 5,
 } as const;
 
 export interface SpawnPlayerOpts {

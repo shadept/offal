@@ -1,0 +1,9 @@
+{
+  id: "glass",
+  name: "Glass",
+  flammability: 0.0,
+  conductivity: 0.01,
+  hardness: 0.4,
+  mass: 0.5,
+  color: "#aaccee",
+}

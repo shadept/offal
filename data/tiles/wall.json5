@@ -1,0 +1,8 @@
+{
+  id: "wall",
+  index: 2,
+  name: "Wall",
+  material: "hull_plating",
+  blocksMovement: true,
+  blocksLight: true,
+}

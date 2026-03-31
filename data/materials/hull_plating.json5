@@ -1,0 +1,9 @@
+{
+  id: "hull_plating",
+  name: "Hull Plating",
+  flammability: 0.0,
+  conductivity: 0.5,
+  hardness: 0.9,
+  mass: 0.9,
+  color: "#334455",
+}

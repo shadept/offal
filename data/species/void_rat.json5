@@ -1,0 +1,9 @@
+{
+  id: "void_rat",
+  name: "Void Rat",
+  description: "Mutation-hardened rodent that infests derelict ships.",
+  speed: 130,
+  fovRange: 4,
+  color: "#aa6633",
+  spawnTags: ["organic", "vermin"],
+}

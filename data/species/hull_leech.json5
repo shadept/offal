@@ -1,0 +1,9 @@
+{
+  id: "hull_leech",
+  name: "Hull Leech",
+  description: "Parasitic organism that feeds on ship plating.",
+  speed: 60,
+  fovRange: 3,
+  color: "#8844aa",
+  spawnTags: ["organic", "parasite"],
+}

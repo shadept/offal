@@ -1,0 +1,10 @@
+{
+  id: "salvager",
+  name: "Salvager",
+  description: "A humanoid scavenger adapted to deep-space salvage work.",
+  speed: 100,
+  fovRange: 8,
+  color: "#e94560",
+  spawnTags: ["humanoid", "player_start"],
+  playerStart: true,
+}

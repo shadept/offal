@@ -31,6 +31,12 @@ export const FOV = soa({
   range: new Uint8Array(MAX_ENTITIES), // vision radius in tiles
 });
 
+// ── AI ────────────────────────────────────────────────────────
+// behaviour: 0 = idle (default), future: 1 = seek, 2 = flee, 3 = patrol
+export const AI = soa({
+  behaviour: new Uint8Array(MAX_ENTITIES),
+});
+
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};

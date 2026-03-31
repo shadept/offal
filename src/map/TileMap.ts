@@ -1,8 +1,12 @@
 /**
  * Tile map data structure.
  * Pure data — no rendering. Owned by game logic, read by visual layer.
+ *
+ * Tile behaviour (blocksMovement, blocksLight) is read from the data
+ * registry — the engine has no hardcoded tile logic.
  */
-import { TileType, Visibility } from '../types';
+import { Visibility } from '../types';
+import { getRegistry } from '../data/loader';
 
 export const TILE_SIZE = 32; // pixels per tile
 
@@ -10,7 +14,7 @@ export class TileMap {
   readonly width: number;
   readonly height: number;
 
-  /** Tile type at each cell (row-major) */
+  /** Tile type index at each cell (row-major) — indices match data/tiles.json5 */
   readonly tiles: Uint8Array;
 
   /** Visibility state per cell for the player */
@@ -38,28 +42,28 @@ export class TileMap {
     return x >= 0 && x < this.width && y >= 0 && y < this.height;
   }
 
-  /** Get tile type at (x, y) */
-  get(x: number, y: number): TileType {
-    if (!this.inBounds(x, y)) return TileType.VOID;
-    return this.tiles[this.idx(x, y)] as TileType;
+  /** Get tile type index at (x, y) */
+  get(x: number, y: number): number {
+    if (!this.inBounds(x, y)) return 0; // void index
+    return this.tiles[this.idx(x, y)];
   }
 
-  /** Set tile type at (x, y) */
-  set(x: number, y: number, type: TileType): void {
+  /** Set tile type index at (x, y) */
+  set(x: number, y: number, type: number): void {
     if (!this.inBounds(x, y)) return;
     this.tiles[this.idx(x, y)] = type;
   }
 
-  /** Check if a tile blocks movement */
+  /** Check if a tile blocks movement (from tile data registry) */
   blocksMovement(x: number, y: number): boolean {
-    const t = this.get(x, y);
-    return t === TileType.VOID || t === TileType.WALL || t === TileType.DOOR_CLOSED;
+    const tileData = getRegistry().tilesByIndex.get(this.get(x, y));
+    return tileData?.blocksMovement ?? true; // unknown tiles block by default
   }
 
-  /** Check if a tile blocks line of sight */
+  /** Check if a tile blocks line of sight (from tile data registry) */
   blocksLight(x: number, y: number): boolean {
-    const t = this.get(x, y);
-    return t === TileType.VOID || t === TileType.WALL || t === TileType.DOOR_CLOSED;
+    const tileData = getRegistry().tilesByIndex.get(this.get(x, y));
+    return tileData?.blocksLight ?? true;
   }
 
   /** Get visibility at (x, y) */

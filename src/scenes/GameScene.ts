@@ -9,22 +9,28 @@
  * - Drain visual event queue
  * - Camera follow
  * - Ambient visual layer
+ * - Sandbox mode (Phase 2)
  */
 import { Scene } from 'phaser';
-import { createGameWorld, spawnPlayer, SpriteIndex } from '../ecs/world';
-import { Position, Renderable, FOV, Turn } from '../ecs/components';
+import { createGameWorld, spawnPlayer } from '../ecs/world';
+import { addEntity, addComponent } from 'bitecs';
+import { Position, Renderable, FOV, Turn, AI, BlocksMovement } from '../ecs/components';
 import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove } from '../ecs/systems/movementSystem';
 import { VisualEventQueue } from '../visual/EventQueue';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
-import { createTestMap, PLAYER_SPAWN } from '../map/testMap';
+import { loadMap } from '../map/mapLoader';
 import { computeFOV } from '../map/fov';
 import { TurnPhase, TileType, Visibility } from '../types';
 import type { VisualEvent } from '../types';
-import { TEX } from './BootScene';
+import { TEX, speciesTexKey } from './BootScene';
 import { HUD } from '../ui/HUD';
+import { SandboxController } from '../sandbox/SandboxController';
+import { SandboxPanel } from '../sandbox/SandboxPanel';
+import { processAITurns } from '../ecs/systems/aiSystem';
+import { getRegistry } from '../data/loader';
 
-/** Texture key for each TileType */
+/** Texture key for each tile index (matches data/tiles.json5) */
 const TILE_TEX: Record<number, string> = {
   [TileType.VOID]: TEX.VOID,
   [TileType.FLOOR]: TEX.FLOOR,
@@ -52,6 +58,8 @@ export class GameScene extends Scene {
   private eventQueue!: VisualEventQueue;
   private tileSprites: (Phaser.GameObjects.Image | null)[] = [];
   private entitySprites = new Map<number, Phaser.GameObjects.Image>();
+  /** Maps entity ID → species ID for texture lookup */
+  private entitySpecies = new Map<number, string>();
   private tileContainer!: Phaser.GameObjects.Container;
   private entityContainer!: Phaser.GameObjects.Container;
 
@@ -71,6 +79,14 @@ export class GameScene extends Scene {
   // ── Idle animation ──
   private idleTime = 0;
 
+  // ── Sandbox ──
+  private sandbox!: SandboxController;
+  private sandboxPanel!: SandboxPanel;
+  private tabKey!: Phaser.Input.Keyboard.Key;
+  private advanceKey!: Phaser.Input.Keyboard.Key;
+  private selectionHighlight!: Phaser.GameObjects.Rectangle;
+  private autoPlayTimer = 0;
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -81,29 +97,31 @@ export class GameScene extends Scene {
     this.turnSystem = new TurnSystem();
     this.eventQueue = new VisualEventQueue();
 
-    // ── Map ──
-    this.tileMap = createTestMap();
+    // ── Map (data-driven) ──
+    const mapResult = loadMap('test_ship');
+    this.tileMap = mapResult.tileMap;
 
     // ── Containers (tile layer below entity layer) ──
     this.tileContainer = this.add.container(0, 0);
     this.entityContainer = this.add.container(0, 0);
 
-    // ── Spawn player ──
+    // ── Spawn player at map-defined position ──
     this.playerEid = spawnPlayer(this.world, {
-      x: PLAYER_SPAWN.x,
-      y: PLAYER_SPAWN.y,
+      x: mapResult.playerSpawn.x,
+      y: mapResult.playerSpawn.y,
       speed: 100,
       viewRange: 8,
     });
-
-    // Give player initial energy to act immediately
     Turn.energy[this.playerEid] = 100;
 
     // ── Create tile sprites ──
     this.createTileSprites();
 
-    // ── Create entity sprites ──
-    this.createEntitySprite(this.playerEid);
+    // ── Create player sprite ──
+    this.createEntitySprite(this.playerEid, 'salvager');
+
+    // ── Spawn map-defined entities ──
+    this.spawnMapEntities(mapResult.spawns);
 
     // ── Initial FOV ──
     this.updateFOV();
@@ -132,6 +150,8 @@ export class GameScene extends Scene {
     };
     this.skipKey = this.input.keyboard!.addKey('SHIFT');
     this.waitKey = this.input.keyboard!.addKey('SPACE');
+    this.tabKey = this.input.keyboard!.addKey('TAB');
+    this.advanceKey = this.input.keyboard!.addKey('N');
 
     // ── Ambient: spark emitter on wall edges ──
     this.setupAmbientEffects();
@@ -139,6 +159,35 @@ export class GameScene extends Scene {
     // ── HUD ──
     this.hud = new HUD(this);
     this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase);
+
+    // ── Sandbox ──
+    this.sandbox = new SandboxController();
+    this.sandbox.bind(this.tileMap, this.world, this.turnSystem);
+    this.sandboxPanel = new SandboxPanel(this.sandbox);
+
+    // Selection highlight (yellow outline, hidden by default)
+    this.selectionHighlight = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE);
+    this.selectionHighlight.setOrigin(0, 0);
+    this.selectionHighlight.setStrokeStyle(1.5, 0xffdd44);
+    this.selectionHighlight.setFillStyle(0xffdd44, 0.1);
+    this.selectionHighlight.setDepth(50);
+    this.selectionHighlight.setVisible(false);
+
+    // Pointer click for sandbox
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (!this.sandbox.active) return;
+      this.handleSandboxClick(pointer);
+    });
+
+    // React to sandbox controller events
+    this.sandbox.on((event, data) => {
+      if (event === 'toggle') this.onSandboxToggle();
+      if (event === 'tile_painted') this.onTilePainted(data as { x: number; y: number; type: number });
+      if (event === 'entity_spawned') this.onEntitySpawned(data as { eid: number; x: number; y: number; speciesId: string });
+      if (event === 'entity_removed') this.onEntityRemoved(data as { eid: number });
+      if (event === 'reveal_changed') this.onRevealChanged();
+      if (event === 'turn_advanced') this.onTurnAdvanced();
+    });
   }
 
   update(time: number, delta: number): void {
@@ -150,29 +199,54 @@ export class GameScene extends Scene {
       this.inputCooldown -= delta;
     }
 
-    // ── Turn state machine ──
-    switch (this.turnSystem.phase) {
-      case TurnPhase.PLAYER_INPUT:
-        this.handlePlayerInput();
-        break;
+    // ── Tab toggle ──
+    if (Phaser.Input.Keyboard.JustDown(this.tabKey)) {
+      this.sandbox.toggle();
+    }
 
-      case TurnPhase.PROCESSING:
-        this.processPlayerAction();
-        break;
+    // ── Sandbox mode ──
+    if (this.sandbox.active) {
+      // Manual turn advance
+      if (Phaser.Input.Keyboard.JustDown(this.advanceKey)) {
+        this.sandbox.advanceTurn();
+      }
 
-      case TurnPhase.ANIMATION:
-        // Queue is draining — handled by callbacks
-        break;
+      // Auto-play
+      if (this.sandbox.autoPlay) {
+        this.autoPlayTimer += delta;
+        const interval = 1000 / this.sandbox.autoPlaySpeed;
+        while (this.autoPlayTimer >= interval) {
+          this.autoPlayTimer -= interval;
+          this.sandbox.advanceTurn();
+        }
+      }
+    } else {
+      // ── Normal turn state machine ──
+      switch (this.turnSystem.phase) {
+        case TurnPhase.PLAYER_INPUT:
+          this.handlePlayerInput();
+          break;
 
-      case TurnPhase.ENEMY_TURN:
-        // No enemies in Phase 1 — skip directly
-        this.turnSystem.phase = TurnPhase.ENEMY_ANIMATION;
-        break;
+        case TurnPhase.PROCESSING:
+          this.processPlayerAction();
+          break;
 
-      case TurnPhase.ENEMY_ANIMATION:
-        // No enemy events — complete immediately
-        this.turnSystem.onEnemyAnimationComplete(this.world);
-        break;
+        case TurnPhase.ANIMATION:
+          // Queue is draining — handled by callbacks
+          break;
+
+        case TurnPhase.ENEMY_TURN:
+          // All AI entities that can act will idle (consume energy).
+          // Phase 4 adds seek/flee/patrol behaviours and visual events.
+          processAITurns(this.world);
+          this.turnSystem.phase = TurnPhase.ENEMY_ANIMATION;
+          break;
+
+        case TurnPhase.ENEMY_ANIMATION:
+          // No enemy events — complete immediately
+          this.turnSystem.onEnemyAnimationComplete(this.world);
+          break;
+      }
     }
 
     // ── Idle animation (player bobs gently) ──
@@ -180,7 +254,8 @@ export class GameScene extends Scene {
     this.updateIdleAnimations();
 
     // ── HUD ──
-    this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase);
+    const fps = this.game.loop.actualFps;
+    this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase, this.sandbox.active, fps);
   }
 
   // ════════════════════════════════════════════════════════════
@@ -207,12 +282,24 @@ export class GameScene extends Scene {
   /** Update tile sprite textures and visibility based on FOV */
   private renderTiles(): void {
     const { width, height } = this.tileMap;
+    const revealAll = this.sandbox?.revealAll;
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = this.tileMap.idx(x, y);
         const sprite = this.tileSprites[idx];
         if (!sprite) continue;
+
+        // Update texture (tiles may have been painted)
+        const tex = TILE_TEX[this.tileMap.tiles[idx]] ?? TEX.VOID;
+        sprite.setTexture(tex);
+
+        if (revealAll) {
+          sprite.setVisible(true);
+          sprite.setAlpha(1);
+          sprite.setTint(0xffffff);
+          continue;
+        }
 
         const vis = this.tileMap.visibility[idx] as Visibility;
 
@@ -221,9 +308,6 @@ export class GameScene extends Scene {
           continue;
         }
 
-        // Update texture (doors may have changed)
-        const tex = TILE_TEX[this.tileMap.tiles[idx]] ?? TEX.VOID;
-        sprite.setTexture(tex);
         sprite.setVisible(true);
 
         if (vis === Visibility.VISIBLE) {
@@ -244,8 +328,10 @@ export class GameScene extends Scene {
   // ENTITY SPRITES
   // ════════════════════════════════════════════════════════════
 
-  private createEntitySprite(eid: number): Phaser.GameObjects.Image {
-    const tex = this.spriteTexForEntity(eid);
+  private createEntitySprite(eid: number, speciesId?: string): Phaser.GameObjects.Image {
+    if (speciesId) this.entitySpecies.set(eid, speciesId);
+    const sid = this.entitySpecies.get(eid) ?? 'salvager';
+    const tex = speciesTexKey(sid);
     const px = Position.x[eid] * TILE_SIZE;
     const py = Position.y[eid] * TILE_SIZE;
     const sprite = this.add.image(px, py, tex);
@@ -255,10 +341,13 @@ export class GameScene extends Scene {
     return sprite;
   }
 
-  private spriteTexForEntity(eid: number): string {
-    const idx = Renderable.spriteIndex[eid];
-    if (idx === SpriteIndex.PLAYER) return TEX.PLAYER;
-    return TEX.FLOOR; // fallback
+  private destroyEntitySprite(eid: number): void {
+    const sprite = this.entitySprites.get(eid);
+    if (sprite) {
+      sprite.destroy();
+      this.entitySprites.delete(eid);
+      this.entitySpecies.delete(eid);
+    }
   }
 
   /** Sync entity sprite position with ECS (for non-animated updates) */
@@ -401,6 +490,23 @@ export class GameScene extends Scene {
   // ════════════════════════════════════════════════════════════
 
   private updateFOV(): void {
+    if (this.sandbox?.revealAll) {
+      // Reveal entire map
+      const { width, height } = this.tileMap;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = this.tileMap.idx(x, y);
+          this.tileMap.visibility[idx] = Visibility.VISIBLE;
+          this.tileMap.light[idx] = 255;
+        }
+      }
+      // All entities visible
+      for (const [, sprite] of this.entitySprites) {
+        sprite.setVisible(true);
+      }
+      return;
+    }
+
     const px = Position.x[this.playerEid];
     const py = Position.y[this.playerEid];
     const range = FOV.range[this.playerEid];
@@ -498,6 +604,132 @@ export class GameScene extends Scene {
           blendMode: 'ADD',
         }
       );
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // SANDBOX
+  // ════════════════════════════════════════════════════════════
+
+  private handleSandboxClick(pointer: Phaser.Input.Pointer): void {
+    const tileX = Math.floor(pointer.worldX / TILE_SIZE);
+    const tileY = Math.floor(pointer.worldY / TILE_SIZE);
+
+    if (!this.tileMap.inBounds(tileX, tileY)) return;
+
+    switch (this.sandbox.activeTool) {
+      case 'inspect':
+        this.sandbox.selectTile(tileX, tileY);
+        this.showSelectionHighlight(tileX, tileY);
+        break;
+
+      case 'tile_paint':
+        this.sandbox.paintTile(tileX, tileY);
+        this.sandbox.selectTile(tileX, tileY);
+        this.showSelectionHighlight(tileX, tileY);
+        break;
+
+      case 'entity_spawn': {
+        // Don't spawn on occupied tiles
+        const existing = this.sandbox.findEntityAt(tileX, tileY);
+        if (existing !== null) {
+          // Select the existing entity instead
+          this.sandbox.selectTile(tileX, tileY);
+          this.showSelectionHighlight(tileX, tileY);
+          break;
+        }
+        this.sandbox.spawnEntity(tileX, tileY);
+        this.sandbox.selectTile(tileX, tileY);
+        this.showSelectionHighlight(tileX, tileY);
+        break;
+      }
+
+      default:
+        // fluid_place, gas_place — not yet functional
+        this.sandbox.selectTile(tileX, tileY);
+        this.showSelectionHighlight(tileX, tileY);
+        break;
+    }
+  }
+
+  private showSelectionHighlight(x: number, y: number): void {
+    this.selectionHighlight.setPosition(x * TILE_SIZE, y * TILE_SIZE);
+    this.selectionHighlight.setVisible(true);
+  }
+
+  private onSandboxToggle(): void {
+    if (!this.sandbox.active) {
+      // Exiting sandbox — clean up
+      this.selectionHighlight.setVisible(false);
+      this.autoPlayTimer = 0;
+      // Restore FOV
+      this.updateFOV();
+      this.renderTiles();
+    }
+  }
+
+  private onTilePainted(data: { x: number; y: number; type: number }): void {
+    const idx = this.tileMap.idx(data.x, data.y);
+    const sprite = this.tileSprites[idx];
+    if (sprite) {
+      const tex = TILE_TEX[data.type] ?? TEX.VOID;
+      sprite.setTexture(tex);
+      sprite.setVisible(true);
+      sprite.setAlpha(1);
+      sprite.setTint(0xffffff);
+    }
+  }
+
+  private onEntitySpawned(data: { eid: number; x: number; y: number; speciesId: string }): void {
+    this.createEntitySprite(data.eid, data.speciesId);
+    // If revealAll or in FOV, make visible
+    const sprite = this.entitySprites.get(data.eid);
+    if (sprite) {
+      sprite.setVisible(this.sandbox.revealAll ||
+        this.tileMap.getVisibility(data.x, data.y) === Visibility.VISIBLE);
+    }
+  }
+
+  private onEntityRemoved(data: { eid: number }): void {
+    this.destroyEntitySprite(data.eid);
+    // Refresh inspector
+    this.sandboxPanel.updateInspector();
+  }
+
+  private onRevealChanged(): void {
+    this.updateFOV();
+    this.renderTiles();
+  }
+
+  private onTurnAdvanced(): void {
+    // Refresh inspector if something is selected
+    this.sandboxPanel.updateInspector();
+  }
+
+  /** Spawn entities defined in the map data file. */
+  private spawnMapEntities(spawns: { species: string; x: number; y: number }[]): void {
+    const registry = getRegistry();
+    for (const spawn of spawns) {
+      const species = registry.species.get(spawn.species);
+      if (!species) {
+        console.warn(`[map] Unknown species '${spawn.species}' in spawn list`);
+        continue;
+      }
+      const eid = addEntity(this.world);
+      addComponent(this.world, eid, Position);
+      addComponent(this.world, eid, Renderable);
+      addComponent(this.world, eid, Turn);
+      addComponent(this.world, eid, BlocksMovement);
+      addComponent(this.world, eid, AI);
+
+      Position.x[eid] = spawn.x;
+      Position.y[eid] = spawn.y;
+      Renderable.layer[eid] = 2;
+      Turn.energy[eid] = 0;
+      Turn.speed[eid] = species.speed;
+      FOV.range[eid] = species.fovRange;
+
+      this.createEntitySprite(eid, species.id);
     }
   }
 }

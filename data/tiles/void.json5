@@ -1,0 +1,8 @@
+{
+  id: "void",
+  index: 0,
+  name: "Void",
+  material: null,
+  blocksMovement: true,
+  blocksLight: true,
+}

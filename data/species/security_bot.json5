@@ -1,0 +1,9 @@
+{
+  id: "security_bot",
+  name: "Security Bot",
+  description: "Ship security automaton. Slow, methodical, dangerous.",
+  speed: 80,
+  fovRange: 6,
+  color: "#4488cc",
+  spawnTags: ["mechanical", "security"],
+}

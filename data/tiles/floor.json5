@@ -1,0 +1,8 @@
+{
+  id: "floor",
+  index: 1,
+  name: "Floor",
+  material: "deck_plate",
+  blocksMovement: false,
+  blocksLight: false,
+}

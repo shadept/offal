@@ -3,10 +3,12 @@
  * Validates and processes movement for entities.
  * Produces visual events — does NOT directly update Position.
  * Position updates happen in the visual event's onCommit callback.
+ *
+ * Tile interactions (doors) are data-driven via the tile registry.
  */
 import { Position } from '../components';
 import { TileMap } from '../../map/TileMap';
-import { TileType } from '../../types';
+import { getRegistry } from '../../data/loader';
 import type { VisualEvent } from '../../types';
 import type { VisualEventQueue } from '../../visual/EventQueue';
 
@@ -48,20 +50,23 @@ export function tryMove(
     return { moved: false, cost: 0, openedDoor: false };
   }
 
-  const targetTile = map.get(toX, toY);
+  const targetIndex = map.get(toX, toY);
+  const tileData = getRegistry().tilesByIndex.get(targetIndex);
 
-  // Bump into closed door → open it (costs a turn)
-  if (targetTile === TileType.DOOR_CLOSED) {
-    // Queue door open event, commit changes the tile
-    const doorEvent: VisualEvent = {
-      type: 'door_open',
-      entityId: eid,
-      data: { x: toX, y: toY },
-    };
-    eventQueue.push(doorEvent, () => {
-      map.set(toX, toY, TileType.DOOR_OPEN);
-    });
-    return { moved: false, cost: DOOR_COST, openedDoor: true };
+  // Check for interactable tile with opensTo (e.g. closed door)
+  if (tileData?.interactable && tileData.opensTo) {
+    const openTile = getRegistry().tiles.get(tileData.opensTo);
+    if (openTile) {
+      const doorEvent: VisualEvent = {
+        type: 'door_open',
+        entityId: eid,
+        data: { x: toX, y: toY },
+      };
+      eventQueue.push(doorEvent, () => {
+        map.set(toX, toY, openTile.index);
+      });
+      return { moved: false, cost: DOOR_COST, openedDoor: true };
+    }
   }
 
   // Check if tile blocks movement

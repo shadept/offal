@@ -1,0 +1,9 @@
+{
+  id: "drone_scout",
+  name: "Scout Drone",
+  description: "Small autonomous recon unit. Fast, fragile, curious.",
+  speed: 120,
+  fovRange: 10,
+  color: "#33aa88",
+  spawnTags: ["mechanical"],
+}

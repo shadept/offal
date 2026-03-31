@@ -1,6 +1,10 @@
 /** Shared type definitions for OFFAL */
 
-/** Tile types for the map grid */
+/**
+ * Tile type indices — numeric IDs matching data/tiles.json5 `index` values.
+ * The enum is a convenience for code readability; the data file is the
+ * source of truth for tile properties.
+ */
 export enum TileType {
   VOID = 0,
   FLOOR = 1,
@@ -50,7 +54,11 @@ export enum Visibility {
   VISIBLE = 2, // currently in FOV
 }
 
-/** Material data loaded from JSON5 */
+// ═══════════════════════════════════════════════════════════
+// DATA TYPES — loaded from JSON5 at boot
+// ═══════════════════════════════════════════════════════════
+
+/** Material data loaded from data/materials/*.json5 */
 export interface MaterialData {
   id: string;
   name: string;
@@ -58,10 +66,50 @@ export interface MaterialData {
   conductivity: number;
   hardness: number;
   mass: number;
-  color: string; // hex color for rendering
+  color: string;
 }
 
-/** Data registry - holds all loaded JSON5 data */
+/** Tile definition loaded from data/tiles.json5 */
+export interface TileData {
+  id: string;
+  index: number;
+  name: string;
+  material: string | null;
+  blocksMovement: boolean;
+  blocksLight: boolean;
+  interactable?: boolean;
+  opensTo?: string;
+  closesTo?: string;
+}
+
+/** Species definition loaded from data/species/*.json5 */
+export interface SpeciesData {
+  id: string;
+  name: string;
+  description: string;
+  speed: number;
+  fovRange: number;
+  color: string;
+  spawnTags: string[];
+  playerStart?: boolean;
+}
+
+/** Map definition loaded from data/maps/*.json5 */
+export interface MapData {
+  id: string;
+  name: string;
+  description: string;
+  playerSpawn: { x: number; y: number };
+  legend: Record<string, string>;   // char → tile id
+  grid: string[];                   // row strings
+  spawns?: { species: string; x: number; y: number }[];
+}
+
+/** Data registry — holds all loaded JSON5 data */
 export interface DataRegistry {
   materials: Map<string, MaterialData>;
+  tiles: Map<string, TileData>;
+  tilesByIndex: Map<number, TileData>;
+  species: Map<string, SpeciesData>;
+  maps: Map<string, MapData>;
 }

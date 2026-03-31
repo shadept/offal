@@ -10,6 +10,10 @@ const game = new Phaser.Game({
   parent: document.body,
   scene: [BootScene, GameScene],
   pixelArt: true,
+  fps: {
+    target: 24,
+    // forceSetTimeOut: true,
+  },
   input: {
     keyboard: true,
   },

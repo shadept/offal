@@ -1,0 +1,50 @@
+{
+  // Test Ship — a small derelict scout vessel.
+  // Four rooms connected by enclosed corridors. Doors between each room.
+  //
+  // Layout:
+  //   BRIDGE ──── CARGO BAY
+  //     │              │
+  //   LAB ──── ENGINEERING
+  //
+  id: "test_ship",
+  name: "Derelict Scout Vessel",
+  description: "A small two-deck scout vessel, adrift in the graveyard.",
+
+  playerSpawn: { x: 6, y: 4 },
+
+  // Maps characters to tile IDs from data/tiles/
+  // Space = void (outer space). The ship floats in the void.
+  legend: {
+    " ": "void",
+    ".": "floor",
+    "#": "wall",
+    "+": "door_closed",
+  },
+
+  grid: [
+    "                            ",
+    "  ##########  ##########    ",
+    "  #........#  #........#    ",
+    "  #........####........#    ",
+    "  #........+..+........#    ",
+    "  #........####........#    ",
+    "  #........#  #.....#..#    ",
+    "  #####+####  #####+####    ",
+    "      #.#         #.#       ",
+    "  #####+####  #####+####    ",
+    "  #........#  #........#    ",
+    "  #........####........#    ",
+    "  #........+..+........#    ",
+    "  #..##....####........#    ",
+    "  #........#  #........#    ",
+    "  ##########  ##########    ",
+    "                            ",
+  ],
+
+  // Entities placed on the map at boot
+  spawns: [
+    { species: "drone_scout", x: 18, y: 4 },
+    { species: "void_rat", x: 6, y: 12 },
+  ],
+}

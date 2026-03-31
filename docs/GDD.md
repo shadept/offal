@@ -274,7 +274,23 @@ Ships are generated with an **arrival state**: a snapshot of what was happening 
 
 ---
 
-## 6. Procedural Generation
+## 6. The Graveyard
+
+The game takes place in the **Shipwreck Nebula** — a vast region of deep space where derelict vessels accumulate. The player's salvage pod approaches a target ship, docks with it, and boards. Everything outside the ship is **void** — the vacuum of space.
+
+### 6.1 Void
+
+Void is not empty negative space. It is the default state of the world — infinite, hostile, and visually present. Outside every hull wall is the nebula: distant stars, gas clouds, wreckage silhouettes. Void tiles should render a parallax starfield or nebula backdrop, not a flat black rectangle. The ship is a fragile island of atmosphere floating in it.
+
+Void is also gameplay-relevant: hull breaches expose tiles to vacuum (pressure system), and entities without vacuum protection die in void. Void is never "off the map" — it is the map. The ship is carved into it.
+
+### 6.2 Dynamic Maps
+
+Maps are not fixed rectangles with hard edges. A predefined ship layout defines its initial footprint, but the world extends beyond it. The player's pod docks — that's new geometry attached to the hull. A hull breach blows a wall out into space — the tiles beyond it exist and are void. Procedural generation seeds the ship's rooms and corridors, but the surrounding void is always accessible (and always lethal without preparation).
+
+Implementation: the tile map can grow dynamically. Out-of-bounds reads return void. Future phases may allow construction, docking, or explosive decompression that extends the playable area beyond the original ship footprint.
+
+### 6.3 Procedural Generation
 
 Ships are generated per run from hull type templates. Ship size scales with progression — early runs use small vessels (2–3 decks), later runs use large ships (many decks, complex layouts). Size is the primary difficulty axis.
 
