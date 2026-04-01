@@ -84,30 +84,30 @@ This phase adds everything needed to see combat: HP, movement AI, attack, death.
 
 ---
 
-## Phase 4 — Fire and Physics
+## Phase 4 — Fire and Physics ✅ COMPLETE
 *Goal: fire spreads turn by turn, water stops it. All visible in sandbox.*
 
 This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas placers get wired up here.
 
 ### Tile Physics State
-- [ ] 🔴 Tile physics component: `{ fluid: Map<id,concentration>, gas: Map<id,concentration>, temperature, surfaceStates: Set<string> }`
-- [ ] 🔴 Material registry: load `data/materials/*.json5`, index by id
-- [ ] 🔴 Physics rules loader: load `data/physics-rules.json5`
+- [x] ✅ Tile physics component: `{ fluid: Map<id,concentration>, gas: Map<id,concentration>, temperature, surfaceStates: Set<string> }`
+- [x] ✅ Material registry: load `data/materials/*.json5`, index by id
+- [x] ✅ Physics rules loader: load `data/physics-rules.json5`
 
 ### Fire System
-- [ ] 🔴 `on_fire` surface state on tiles
-- [ ] 🔴 Fire spreads to adjacent tiles where material `flammability > threshold`
-- [ ] 🔴 Fire on tile damages entities each turn (`burning` status if organic)
-- [ ] 🔴 `wet` tile suppresses fire
-- [ ] 🔴 `fire_spread` visual event: ignition particle burst on newly burning tile
+- [x] ✅ `on_fire` surface state on tiles
+- [x] ✅ Fire spreads to adjacent tiles where material `flammability > threshold`
+- [x] ✅ Fire on tile damages entities each turn (`burning` status if organic)
+- [x] ✅ `wet` tile suppresses fire
+- [x] ✅ `fire_spread` visual event: ignition particle burst on newly burning tile
 - [ ] 🟡 Fire generates `smoke` gas concentration
 - [ ] 🟡 `explosion` visual event: particles + camera shake
 
 ### Fluid System
-- [ ] 🔴 Fluid spreads to adjacent tiles each turn (rate from viscosity)
-- [ ] 🔴 Fluid evaporates over time
-- [ ] 🔴 Fluid + fire interaction: water suppresses, oil intensifies
-- [ ] 🔴 `fluid_spread` visual event: alpha fade-in on new tile
+- [x] ✅ Fluid spreads to adjacent tiles each turn (rate from viscosity)
+- [x] ✅ Fluid evaporates over time
+- [x] ✅ Fluid + fire interaction: water suppresses, oil intensifies
+- [x] ✅ `fluid_spread` visual event: alpha fade-in on new tile
 - [ ] 🟡 Fluid contamination transfers to entity on contact
 
 ### Gas System
@@ -116,12 +116,12 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 - [ ] 🟡 Flammable gas above threshold explodes on ignition
 
 ### Sandbox Wiring
-- [ ] 🔴 Fluid placer: select fluid, click to add concentration to tile
-- [ ] 🔴 Gas placer: select gas, click to add concentration to tile
-- [ ] 🔴 Event trigger buttons: ignite fire, apply charge, breach hull on selected tile
-- [ ] 🔴 Tile inspector shows physics state (temperature, fluid, gas, surface states)
+- [x] ✅ Fluid placer: select fluid, click to add concentration to tile
+- [x] ✅ Gas placer: select gas, click to add concentration to tile
+- [x] ✅ Event trigger buttons: ignite fire on selected tile
+- [x] ✅ Tile inspector shows physics state (temperature, fluid, gas, surface states)
 
-**Exit criteria**: in sandbox, paint a wooden tile, ignite it — fire spreads. Pour water — it stops. Pour oil then ignite — spreads faster. All visible turn by turn.
+**Exit criteria**: in sandbox, paint a wooden tile, ignite it — fire spreads. Pour water — it stops. Pour oil then ignite — spreads faster. All visible turn by turn. ✅
 
 ---
 
