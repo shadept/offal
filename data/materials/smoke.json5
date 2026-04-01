@@ -1,0 +1,11 @@
+{
+  id: "smoke",
+  name: "Smoke",
+  flammability: 0.0,
+  conductivity: 0.0,
+  hardness: 0.0,
+  mass: 0.05,
+  color: "#666666",
+  // Gas-specific properties
+  tags: ["gas"],
+}

@@ -3,7 +3,7 @@
  * All game content is data-driven; no hardcoded content in game logic.
  */
 import JSON5 from 'json5';
-import type { MaterialData, TileData, SpeciesData, MapData, FactionData, DataRegistry } from '../types';
+import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, DataRegistry } from '../types';
 
 // Vite glob imports — `?raw` imports file contents as strings
 const materialFiles = import.meta.glob('/data/materials/*.json5', {
@@ -31,6 +31,12 @@ const speciesFiles = import.meta.glob('/data/species/*.json5', {
 });
 
 const factionFiles = import.meta.glob('/data/factions.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const physicsRulesFiles = import.meta.glob('/data/physics-rules.json5', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -117,6 +123,25 @@ function parseFactions(): Map<string, FactionData> {
   return map;
 }
 
+function parsePhysicsRules(): PhysicsRulesData {
+  const defaultRules: PhysicsRulesData = {
+    rules: [],
+    fluidFireInteractions: { suppressors: [], intensifiers: [], intensifierThresholdMultiplier: 0.3 },
+  };
+  for (const [path, raw] of Object.entries(physicsRulesFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string);
+      return {
+        rules: parsed.rules ?? [],
+        fluidFireInteractions: parsed.fluidFireInteractions ?? defaultRules.fluidFireInteractions,
+      };
+    } catch (e) {
+      console.error(`Failed to parse physics rules file ${path}:`, e);
+    }
+  }
+  return defaultRules;
+}
+
 let registry: DataRegistry | null = null;
 
 /** Load all JSON5 data files and return the registry. Cached after first call. */
@@ -132,6 +157,7 @@ export function loadData(): DataRegistry {
     species: parseSpecies(),
     maps: parseMaps(),
     factions: parseFactions(),
+    physicsRules: parsePhysicsRules(),
   };
 
   console.log(
@@ -139,7 +165,8 @@ export function loadData(): DataRegistry {
     `${registry.tiles.size} tiles, ` +
     `${registry.species.size} species, ` +
     `${registry.factions.size} factions, ` +
-    `${registry.maps.size} maps`
+    `${registry.maps.size} maps, ` +
+    `${registry.physicsRules.rules.length} physics rules`
   );
   return registry;
 }

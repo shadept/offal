@@ -21,6 +21,12 @@
       ? store.ctrl.debugRegistry.getFor(store.ctrl.getWorld(), store.selectedEntity)
       : []
   );
+
+  function formatMap(obj: Record<string, number>): string {
+    const entries = Object.entries(obj);
+    if (entries.length === 0) return 'None';
+    return entries.map(([id, c]) => `${id}: ${c.toFixed(2)}`).join(', ');
+  }
 </script>
 
 <div class="sb-section">
@@ -37,9 +43,10 @@
       <div><span class="sb-inspect-label">Material: </span><span class="sb-inspect-value">{tileInfo.materialName}</span></div>
       <div><span class="sb-inspect-label">Visibility: </span><span class="sb-inspect-value">{tileInfo.visibility}</span></div>
       <div><span class="sb-inspect-label">Light: </span><span class="sb-inspect-value">{tileInfo.light}</span></div>
-      <div><span class="sb-inspect-label">Fluids: </span><span class="sb-inspect-value">N/A</span></div>
-      <div><span class="sb-inspect-label">Gases: </span><span class="sb-inspect-value">N/A</span></div>
-      <div><span class="sb-inspect-label">Temperature: </span><span class="sb-inspect-value">N/A</span></div>
+      <div><span class="sb-inspect-label">Fluids: </span><span class="sb-inspect-value">{formatMap(tileInfo.fluids)}</span></div>
+      <div><span class="sb-inspect-label">Gases: </span><span class="sb-inspect-value">{formatMap(tileInfo.gases)}</span></div>
+      <div><span class="sb-inspect-label">Temperature: </span><span class="sb-inspect-value">{tileInfo.temperature}</span></div>
+      <div><span class="sb-inspect-label">States: </span><span class="sb-inspect-value">{tileInfo.surfaceStates.length > 0 ? tileInfo.surfaceStates.join(', ') : 'None'}</span></div>
     </div>
   {/if}
 

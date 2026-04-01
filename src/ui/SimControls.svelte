@@ -48,11 +48,17 @@
 <div class="sb-section">
   <div class="sb-section-title">Event Triggers</div>
   <div class="sb-tools">
-    {#each ['Fire', 'Charge', 'Breach'] as name}
-      <button class="sb-tool-btn" disabled>
-        {name} <span class="sb-phase-label">(Phase 4)</span>
-      </button>
-    {/each}
+    <button class="sb-tool-btn" onclick={() => {
+      if (store.selectedTile) {
+        store.ctrl.igniteTile(store.selectedTile.x, store.selectedTile.y);
+      }
+    }}>Ignite</button>
+    <button class="sb-tool-btn" disabled>
+      Charge <span class="sb-phase-label">(Icebox)</span>
+    </button>
+    <button class="sb-tool-btn" disabled>
+      Breach <span class="sb-phase-label">(Icebox)</span>
+    </button>
   </div>
 </div>
 

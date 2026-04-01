@@ -1,0 +1,13 @@
+{
+  id: "water",
+  name: "Water",
+  flammability: 0.0,
+  conductivity: 0.3,
+  hardness: 0.0,
+  mass: 0.5,
+  color: "#4488cc",
+  // Fluid-specific properties
+  viscosity: 0.1,
+  evaporationRate: 0.02,
+  tags: ["fluid", "suppresses_fire"],
+}

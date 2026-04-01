@@ -11,6 +11,7 @@
  * - Ambient visual layer
  * - Sandbox mode (Phase 2)
  * - AI combat, death visual events (Phase 3)
+ * - Fire & physics systems (Phase 4)
  */
 import { Scene } from 'phaser';
 import { createGameWorld, spawnPlayer } from '../ecs/world';
@@ -22,6 +23,9 @@ import {
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
 import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove, getBlockingEntity } from '../ecs/systems/movementSystem';
+import { processFireSystem } from '../ecs/systems/fireSystem';
+import { processFluidSystem } from '../ecs/systems/fluidSystem';
+import { TilePhysicsMap } from '../ecs/systems/tilePhysics';
 import { VisualEventQueue } from '../visual/EventQueue';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
 import { loadMap } from '../map/mapLoader';
@@ -65,6 +69,7 @@ export class GameScene extends Scene {
 
   // ── Map ──
   private tileMap!: TileMap;
+  private tilePhysics!: TilePhysicsMap;
 
   // ── Visual ──
   private eventQueue!: VisualEventQueue;
@@ -73,7 +78,14 @@ export class GameScene extends Scene {
   /** Maps entity ID → species ID for texture lookup */
   private entitySpecies = new Map<number, string>();
   private tileContainer!: Phaser.GameObjects.Container;
+  private overlayContainer!: Phaser.GameObjects.Container;
   private entityContainer!: Phaser.GameObjects.Container;
+  /** Fire overlay sprites indexed by tile flat index */
+  private fireOverlays = new Map<number, Phaser.GameObjects.Image>();
+  /** Fluid overlay sprites indexed by tile flat index */
+  private fluidOverlays = new Map<number, Phaser.GameObjects.Image>();
+  /** Fire particle emitters indexed by tile flat index */
+  private fireEmitters = new Map<number, Phaser.GameObjects.Particles.ParticleEmitter>();
 
   // ── Ambient ──
   private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -122,9 +134,13 @@ export class GameScene extends Scene {
     const mapResult = loadMap('test_ship');
     this.tileMap = mapResult.tileMap;
 
-    // ── Containers (tile layer below entity layer) ──
+    // ── Containers (tile layer below overlay layer below entity layer) ──
     this.tileContainer = this.add.container(0, 0);
+    this.overlayContainer = this.add.container(0, 0);
     this.entityContainer = this.add.container(0, 0);
+
+    // ── Tile physics state ──
+    this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
 
     // ── Spawn player at map-defined position ──
     const registry = getRegistry();
@@ -188,7 +204,7 @@ export class GameScene extends Scene {
 
     // ── Sandbox ──
     this.sandbox = new SandboxController();
-    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue);
+    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics);
     this.sandboxPanelHandle = mount(SandboxPanel, { target: document.body, props: { ctrl: this.sandbox } });
 
     // Selection highlight (yellow outline, hidden by default)
@@ -213,6 +229,11 @@ export class GameScene extends Scene {
       if (event === 'entity_spawned') this.onEntitySpawned(data as { eid: number; x: number; y: number; speciesId: string });
       if (event === 'entity_removed') this.onEntityRemoved(data as { eid: number });
       if (event === 'reveal_changed') this.onRevealChanged();
+      if (event === 'physics_changed') {
+        const d = data as { x: number; y: number };
+        this.updateFireOverlay(d.x, d.y);
+        this.updateFluidOverlay(d.x, d.y);
+      }
       if (event === 'advance_turn') this.runSandboxTurn();
       if (event === 'selection_changed') this.updateDebugOverlays();
       if (event === 'overlays_changed') this.updateDebugOverlays();
@@ -549,27 +570,35 @@ export class GameScene extends Scene {
     this.cleanupDeadEntities();
     this.updateFOV();
     this.renderTiles();
+    this.renderPhysicsOverlays();
     this.updateDebugOverlays();
 
     // Advance turn
     this.turnSystem.onPlayerAnimationComplete(this.world);
   }
 
-  /** Process enemy turn with AI behaviours and combat. */
+  /** Process enemy turn with AI behaviours, combat, and physics. */
   private processEnemyTurn(): void {
     processAITurns(this.world, this.tileMap, this.eventQueue);
+
+    // Run physics systems each enemy turn
+    processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
+    processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
+
     this.turnSystem.advance(this.world);
 
-    // Drain visual queue (AI move/attack events)
+    // Drain visual queue (AI move/attack events + physics events)
     if (this.eventQueue.length > 0) {
       this.eventQueue.drain(() => {
         this.cleanupDeadEntities();
         this.updateFOV();
         this.renderTiles();
+        this.renderPhysicsOverlays();
         this.updateDebugOverlays();
         this.turnSystem.onEnemyAnimationComplete(this.world);
       });
     } else {
+      this.renderPhysicsOverlays();
       this.updateDebugOverlays();
       this.turnSystem.onEnemyAnimationComplete(this.world);
     }
@@ -727,6 +756,72 @@ export class GameScene extends Scene {
         },
       });
     });
+
+    // ── Fire spread event ──
+    this.eventQueue.registerHandler('fire_spread', (event: VisualEvent, onComplete: () => void) => {
+      const { x, y } = event.data as { x: number; y: number };
+      const visible = this.sandbox?.revealAll ||
+        this.tileMap.getVisibility(x, y) === Visibility.VISIBLE;
+
+      // Always update the overlay (fire state is committed)
+      this.updateFireOverlay(x, y);
+
+      if (!visible || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+
+      // Ignition particle burst
+      const px = x * TILE_SIZE + TILE_SIZE / 2;
+      const py = y * TILE_SIZE + TILE_SIZE / 2;
+      const emitter = this.add.particles(px, py, TEX.FIRE_PARTICLE, {
+        speed: { min: 20, max: 60 },
+        angle: { min: 200, max: 340 },
+        lifespan: 400,
+        alpha: { start: 1, end: 0 },
+        scale: { start: 1.5, end: 0.3 },
+        quantity: 6,
+        blendMode: 'ADD',
+        emitting: false,
+      });
+      emitter.explode(6);
+
+      // Short delay for visual impact, then complete
+      this.time.delayedCall(200, () => {
+        emitter.destroy();
+        onComplete();
+      });
+    });
+
+    // ── Fluid spread event ──
+    this.eventQueue.registerHandler('fluid_spread', (event: VisualEvent, onComplete: () => void) => {
+      const { x, y } = event.data as { x: number; y: number; fluidId: string; color: string };
+      const visible = this.sandbox?.revealAll ||
+        this.tileMap.getVisibility(x, y) === Visibility.VISIBLE;
+
+      // Update fluid overlay
+      this.updateFluidOverlay(x, y);
+
+      if (!visible || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+
+      // Alpha fade-in for new fluid tile
+      const idx = this.tileMap.idx(x, y);
+      const overlay = this.fluidOverlays.get(idx);
+      if (overlay) {
+        overlay.setAlpha(0);
+        this.tweens.add({
+          targets: overlay,
+          alpha: 0.5,
+          duration: 200,
+          onComplete: () => onComplete(),
+        });
+      } else {
+        onComplete();
+      }
+    });
   }
 
   /** Remove a dead entity from world and visual layer. */
@@ -735,6 +830,105 @@ export class GameScene extends Scene {
     this.sandbox.pinnedOverlays.delete(eid);
     clearEntityAICache(eid);
     removeEntity(this.world, eid);
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // PHYSICS OVERLAYS
+  // ════════════════════════════════════════════════════════════
+
+  /** Create or update fire overlay for a tile. */
+  private updateFireOverlay(x: number, y: number): void {
+    const idx = this.tileMap.idx(x, y);
+    const isOnFire = this.tilePhysics.hasSurfaceState(x, y, 'on_fire');
+
+    if (isOnFire && !this.fireOverlays.has(idx)) {
+      // Create fire overlay sprite
+      const sprite = this.add.image(x * TILE_SIZE, y * TILE_SIZE, TEX.FIRE_OVERLAY);
+      sprite.setOrigin(0, 0);
+      sprite.setBlendMode('ADD');
+      sprite.setDepth(1);
+      this.overlayContainer.add(sprite);
+      this.fireOverlays.set(idx, sprite);
+
+      // Create fire particle emitter for ambient effect
+      const emitter = this.add.particles(
+        x * TILE_SIZE + TILE_SIZE / 2,
+        y * TILE_SIZE + TILE_SIZE / 2,
+        TEX.FIRE_PARTICLE,
+        {
+          speed: { min: 8, max: 25 },
+          angle: { min: 250, max: 290 },
+          lifespan: { min: 400, max: 800 },
+          alpha: { start: 0.8, end: 0 },
+          scale: { start: 1, end: 0.2 },
+          frequency: 300,
+          quantity: 1,
+          blendMode: 'ADD',
+        },
+      );
+      this.fireEmitters.set(idx, emitter);
+    } else if (!isOnFire && this.fireOverlays.has(idx)) {
+      // Remove fire overlay
+      const sprite = this.fireOverlays.get(idx)!;
+      sprite.destroy();
+      this.fireOverlays.delete(idx);
+
+      const emitter = this.fireEmitters.get(idx);
+      if (emitter) {
+        emitter.destroy();
+        this.fireEmitters.delete(idx);
+      }
+    }
+  }
+
+  /** Create or update fluid overlay for a tile. */
+  private updateFluidOverlay(x: number, y: number): void {
+    const idx = this.tileMap.idx(x, y);
+    const state = this.tilePhysics.get(x, y);
+    if (!state) return;
+
+    // Find highest-concentration fluid
+    let maxFluid = '';
+    let maxConc = 0;
+    for (const [fluidId, conc] of state.fluids) {
+      if (conc > maxConc) {
+        maxConc = conc;
+        maxFluid = fluidId;
+      }
+    }
+
+    if (maxConc > 0.01) {
+      const material = getRegistry().materials.get(maxFluid);
+      const color = material?.color ?? '#4488cc';
+      const tint = parseInt(color.replace('#', ''), 16);
+
+      if (!this.fluidOverlays.has(idx)) {
+        const sprite = this.add.image(x * TILE_SIZE, y * TILE_SIZE, TEX.FLUID_OVERLAY);
+        sprite.setOrigin(0, 0);
+        sprite.setDepth(1);
+        this.overlayContainer.add(sprite);
+        this.fluidOverlays.set(idx, sprite);
+      }
+
+      const sprite = this.fluidOverlays.get(idx)!;
+      sprite.setTint(tint);
+      sprite.setAlpha(Math.min(0.6, maxConc * 0.8));
+      sprite.setVisible(true);
+    } else if (this.fluidOverlays.has(idx)) {
+      const sprite = this.fluidOverlays.get(idx)!;
+      sprite.destroy();
+      this.fluidOverlays.delete(idx);
+    }
+  }
+
+  /** Refresh all physics overlays (fire + fluid) for the entire map. */
+  private renderPhysicsOverlays(): void {
+    for (let y = 0; y < this.tileMap.height; y++) {
+      for (let x = 0; x < this.tileMap.width; x++) {
+        this.updateFireOverlay(x, y);
+        this.updateFluidOverlay(x, y);
+      }
+    }
   }
 
   // ════════════════════════════════════════════════════════════
@@ -863,7 +1057,7 @@ export class GameScene extends Scene {
   // SANDBOX
   // ════════════════════════════════════════════════════════════
 
-  /** Run one sandbox turn: tick energy, run AI, drain visual queue. */
+  /** Run one sandbox turn: tick energy, run AI, run physics, drain visual queue. */
   private runSandboxTurn(): void {
     if (this.sandboxDraining) return;
 
@@ -873,6 +1067,10 @@ export class GameScene extends Scene {
     // Run AI with movement, combat
     processAITurns(this.world, this.tileMap, this.eventQueue);
 
+    // Run physics systems (fire, fluid)
+    processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
+    processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
+
     // Drain visual queue
     if (this.eventQueue.length > 0) {
       this.sandboxDraining = true;
@@ -881,10 +1079,12 @@ export class GameScene extends Scene {
         this.cleanupDeadEntities();
         this.updateFOV();
         this.renderTiles();
+        this.renderPhysicsOverlays();
         this.sandbox.emit('state_changed');
         this.updateDebugOverlays();
       });
     } else {
+      this.renderPhysicsOverlays();
       this.sandbox.emit('state_changed');
       this.updateDebugOverlays();
     }
@@ -923,8 +1123,20 @@ export class GameScene extends Scene {
         break;
       }
 
+      case 'fluid_place':
+        this.sandbox.placeFluid(tileX, tileY);
+        this.sandbox.selectTile(tileX, tileY);
+        this.showSelectionHighlight(tileX, tileY);
+        this.updateFluidOverlay(tileX, tileY);
+        break;
+
+      case 'gas_place':
+        this.sandbox.placeGas(tileX, tileY);
+        this.sandbox.selectTile(tileX, tileY);
+        this.showSelectionHighlight(tileX, tileY);
+        break;
+
       default:
-        // fluid_place, gas_place — not yet functional
         this.sandbox.selectTile(tileX, tileY);
         this.showSelectionHighlight(tileX, tileY);
         break;

@@ -1,0 +1,208 @@
+/**
+ * Fire System — processes fire spread, damage, and suppression each turn.
+ *
+ * Reads physics rules from data registry. No hardcoded knowledge of
+ * specific materials — behaviour emerges from flammability values and
+ * surface states.
+ *
+ * Architecture: logic only. Pushes visual events to the queue.
+ * Never renders directly.
+ */
+import { query, hasComponent } from 'bitecs';
+import { Position, Health, Dead } from '../components';
+import { getRegistry } from '../../data/loader';
+import type { TileMap } from '../../map/TileMap';
+import type { TilePhysicsMap } from './tilePhysics';
+import type { VisualEventQueue } from '../../visual/EventQueue';
+import type { PhysicsRuleData } from '../../types';
+
+/** Cardinal adjacency offsets */
+const ADJ = [
+  { dx: -1, dy: 0 },
+  { dx: 1, dy: 0 },
+  { dx: 0, dy: -1 },
+  { dx: 0, dy: 1 },
+];
+
+/**
+ * Run fire system for one turn.
+ * - Burning tiles damage entities standing on them.
+ * - Fire spreads to adjacent tiles if material flammability exceeds threshold.
+ * - Wet tiles suppress fire.
+ * - Oil fluid on a tile lowers the spread threshold (intensifies fire).
+ */
+export function processFireSystem(
+  tileMap: TileMap,
+  physics: TilePhysicsMap,
+  world: object,
+  eventQueue: VisualEventQueue,
+): void {
+  const registry = getRegistry();
+  const fireRule = registry.physicsRules.rules.find(
+    (r: PhysicsRuleData) => r.trigger === 'on_fire'
+  );
+  if (!fireRule || !fireRule.propagatesTo) return;
+
+  const { fluidFireInteractions } = registry.physicsRules;
+  const damagePerTurn = fireRule.damagePerTurn ?? 3;
+  const baseThreshold = fireRule.propagatesTo.threshold;
+  const spreadDelay = fireRule.propagatesTo.delay;
+
+  // Collect currently burning tiles (snapshot to avoid mutation during iteration)
+  const burningTiles: { x: number; y: number }[] = [];
+  for (let y = 0; y < physics.height; y++) {
+    for (let x = 0; x < physics.width; x++) {
+      if (physics.hasSurfaceState(x, y, 'on_fire')) {
+        burningTiles.push({ x, y });
+      }
+    }
+  }
+
+  // Process each burning tile
+  const newFires: { x: number; y: number }[] = [];
+
+  for (const { x, y } of burningTiles) {
+    const state = physics.get(x, y)!;
+
+    // Check if fire is consumed by a suppressor state
+    let suppressed = false;
+    for (const consumedBy of fireRule.consumedBy) {
+      if (state.surfaceStates.has(consumedBy)) {
+        suppressed = true;
+        break;
+      }
+    }
+
+    // Check if a suppressor fluid is present
+    for (const suppressor of fluidFireInteractions.suppressors) {
+      const conc = state.fluids.get(suppressor) ?? 0;
+      if (conc > 0.1) {
+        suppressed = true;
+        // Consume the fluid
+        const remaining = conc - 0.3;
+        if (remaining <= 0) {
+          state.fluids.delete(suppressor);
+        } else {
+          state.fluids.set(suppressor, remaining);
+        }
+        // Add wet state
+        state.surfaceStates.add('wet');
+        break;
+      }
+    }
+
+    if (suppressed) {
+      state.surfaceStates.delete('on_fire');
+      state.temperature = Math.max(0, state.temperature - 50);
+      continue;
+    }
+
+    // Raise temperature
+    state.temperature = Math.min(500, state.temperature + 50);
+
+    // Damage entities on this tile
+    damageEntitiesOnTile(x, y, damagePerTurn, world, eventQueue);
+
+    // Decrement fire delay
+    if (state.fireDelay > 0) {
+      state.fireDelay--;
+      continue; // Don't spread yet
+    }
+
+    // Spread fire to adjacent tiles
+    for (const { dx, dy } of ADJ) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!physics.inBounds(nx, ny)) continue;
+
+      const neighborState = physics.get(nx, ny)!;
+      // Skip if already burning
+      if (neighborState.surfaceStates.has('on_fire')) continue;
+
+      // Get material flammability for the neighbor tile
+      const tileData = registry.tilesByIndex.get(tileMap.get(nx, ny));
+      const materialId = tileData?.material ?? null;
+      const material = materialId ? registry.materials.get(materialId) : null;
+      const flammability = material?.flammability ?? 0;
+
+      // Check if intensifier fluid lowers the threshold
+      let threshold = baseThreshold;
+      for (const intensifier of fluidFireInteractions.intensifiers) {
+        const conc = neighborState.fluids.get(intensifier) ?? 0;
+        if (conc > 0.05) {
+          threshold *= fluidFireInteractions.intensifierThresholdMultiplier;
+          break;
+        }
+      }
+
+      if (flammability > threshold) {
+        newFires.push({ x: nx, y: ny });
+      }
+    }
+  }
+
+  // Ignite new fires
+  for (const { x, y } of newFires) {
+    const state = physics.get(x, y)!;
+    if (state.surfaceStates.has('on_fire')) continue; // May have been added by another neighbor
+
+    state.surfaceStates.add('on_fire');
+    state.fireDelay = spreadDelay;
+    state.temperature = Math.min(500, state.temperature + 100);
+
+    // Consume intensifier fluid if present
+    const { fluidFireInteractions: ffi } = registry.physicsRules;
+    for (const intensifier of ffi.intensifiers) {
+      const conc = state.fluids.get(intensifier) ?? 0;
+      if (conc > 0) {
+        const remaining = conc - 0.2;
+        if (remaining <= 0) {
+          state.fluids.delete(intensifier);
+        } else {
+          state.fluids.set(intensifier, remaining);
+        }
+      }
+    }
+
+    // Push visual event
+    eventQueue.push({
+      type: 'fire_spread',
+      entityId: -1,
+      data: { x, y },
+    });
+  }
+}
+
+/** Damage all living entities standing on a tile. */
+function damageEntitiesOnTile(
+  x: number,
+  y: number,
+  damage: number,
+  world: object,
+  eventQueue: VisualEventQueue,
+): void {
+  const entities = query(world, [Position, Health]);
+  for (const eid of entities) {
+    if (hasComponent(world, eid, Dead)) continue;
+    if (Position.x[eid] !== x || Position.y[eid] !== y) continue;
+
+    // Enqueue hit flash with damage commit
+    eventQueue.push(
+      {
+        type: 'hit_flash',
+        entityId: eid,
+        data: { damage, source: 'fire' },
+      },
+      () => {
+        Health.hp[eid] -= damage;
+        if (Health.hp[eid] <= 0) {
+          eventQueue.push({
+            type: 'death',
+            entityId: eid,
+            data: { cause: 'fire' },
+          });
+        }
+      },
+    );
+  }
+}

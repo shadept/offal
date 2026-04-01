@@ -14,6 +14,7 @@ import { getRegistry } from '../data/loader';
 import type { SpeciesData } from '../types';
 import type { TurnSystem } from '../ecs/systems/turnSystem';
 import type { VisualEventQueue } from '../visual/EventQueue';
+import type { TilePhysicsMap } from '../ecs/systems/tilePhysics';
 import { DebugOverlayRegistry } from './debugOverlays';
 import { clearEntityAICache } from '../ecs/systems/aiSystem';
 import type { SandboxTool, TileInspectData, EntityInspectData, ComponentSectionData } from './types';
@@ -39,6 +40,8 @@ export class SandboxController {
   activeTool: SandboxTool = 'inspect';
   paintTileIndex = 2; // default: wall (index from tile data)
   selectedSpeciesId = '';  // set to first non-player species on init
+  selectedFluidId = 'water';  // default fluid for placer
+  selectedGasId = 'smoke';    // default gas for placer
 
   // ── Simulation ──
   autoPlay = false;
@@ -55,16 +58,18 @@ export class SandboxController {
   private world!: object;
   private turnSystem!: TurnSystem;
   private eventQueue!: VisualEventQueue;
+  private tilePhysics!: TilePhysicsMap;
 
   // ── Event emitter ──
   private listeners: Listener[] = [];
 
   /** Bind game references. Called once from GameScene.create(). */
-  bind(tileMap: TileMap, world: object, turnSystem: TurnSystem, eventQueue: VisualEventQueue): void {
+  bind(tileMap: TileMap, world: object, turnSystem: TurnSystem, eventQueue: VisualEventQueue, tilePhysics?: TilePhysicsMap): void {
     this.tileMap = tileMap;
     this.world = world;
     this.turnSystem = turnSystem;
     this.eventQueue = eventQueue;
+    if (tilePhysics) this.tilePhysics = tilePhysics;
 
     // Default to first non-playerStart species
     const registry = getRegistry();
@@ -110,6 +115,19 @@ export class SandboxController {
     const tileData = getRegistry().tilesByIndex.get(tileIndex);
     const materialId = tileData?.material ?? null;
     const material = materialId ? getRegistry().materials.get(materialId) : null;
+    // Read physics state
+    const physState = this.tilePhysics?.get(x, y);
+    const fluids: Record<string, number> = {};
+    const gases: Record<string, number> = {};
+    let temperature = 0;
+    let surfaceStates: string[] = [];
+    if (physState) {
+      for (const [id, conc] of physState.fluids) fluids[id] = conc;
+      for (const [id, conc] of physState.gases) gases[id] = conc;
+      temperature = physState.temperature;
+      surfaceStates = Array.from(physState.surfaceStates);
+    }
+
     return {
       x,
       y,
@@ -118,10 +136,10 @@ export class SandboxController {
       materialName: material?.name ?? 'None',
       visibility: VIS_NAMES[this.tileMap.visibility[idx]] ?? 'Unknown',
       light: this.tileMap.light[idx],
-      fluids: {},
-      gases: {},
-      temperature: 0,
-      surfaceStates: [],
+      fluids,
+      gases,
+      temperature,
+      surfaceStates,
     };
   }
 
@@ -213,6 +231,54 @@ export class SandboxController {
     this.emit('entity_spawned', { eid, x, y, speciesId: species.id });
     return eid;
   }
+
+  /** Place fluid on a tile */
+  placeFluid(x: number, y: number): void {
+    if (!this.tileMap.inBounds(x, y) || !this.tilePhysics) return;
+    this.tilePhysics.addFluid(x, y, this.selectedFluidId, 0.5);
+    this.emit('physics_changed', { x, y });
+  }
+
+  /** Place gas on a tile */
+  placeGas(x: number, y: number): void {
+    if (!this.tileMap.inBounds(x, y) || !this.tilePhysics) return;
+    this.tilePhysics.addGas(x, y, this.selectedGasId, 0.5);
+    this.emit('physics_changed', { x, y });
+  }
+
+  /** Ignite fire on a tile */
+  igniteTile(x: number, y: number): void {
+    if (!this.tileMap.inBounds(x, y) || !this.tilePhysics) return;
+    this.tilePhysics.addSurfaceState(x, y, 'on_fire');
+    const state = this.tilePhysics.get(x, y);
+    if (state) state.temperature = Math.min(500, state.temperature + 100);
+    this.emit('physics_changed', { x, y });
+  }
+
+  /** Get available fluids for the placer tool */
+  getPlaceableFluids(): { id: string; name: string }[] {
+    const result: { id: string; name: string }[] = [];
+    for (const [, mat] of getRegistry().materials) {
+      if (mat.tags?.includes('fluid')) {
+        result.push({ id: mat.id, name: mat.name });
+      }
+    }
+    return result;
+  }
+
+  /** Get available gases for the placer tool */
+  getPlaceableGases(): { id: string; name: string }[] {
+    const result: { id: string; name: string }[] = [];
+    for (const [, mat] of getRegistry().materials) {
+      if (mat.tags?.includes('gas')) {
+        result.push({ id: mat.id, name: mat.name });
+      }
+    }
+    return result;
+  }
+
+  /** Get tile physics map ref. */
+  getTilePhysics(): TilePhysicsMap { return this.tilePhysics; }
 
   deleteEntity(eid: number): boolean {
     const players = query(this.world, [PlayerTag]);
@@ -310,6 +376,16 @@ export class SandboxController {
   setSelectedSpecies(id: string): void {
     this.selectedSpeciesId = id;
     this.emit('species_changed', id);
+  }
+
+  setSelectedFluid(id: string): void {
+    this.selectedFluidId = id;
+    this.emit('fluid_changed', id);
+  }
+
+  setSelectedGas(id: string): void {
+    this.selectedGasId = id;
+    this.emit('gas_changed', id);
   }
 
   setRevealAll(v: boolean): void {

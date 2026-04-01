@@ -1,0 +1,46 @@
+{
+  rules: [
+    {
+      // Fire spreads to adjacent tiles with flammable materials
+      trigger: "on_fire",
+      propagatesTo: {
+        condition: "adjacent",
+        materialProperty: "flammability",
+        threshold: 0.3,
+        effect: "on_fire",
+        delay: 1,
+      },
+      consumedBy: ["wet", "vacuum"],
+      damagePerTurn: 3,
+      burnStatusOnOrganic: true,
+    },
+    {
+      // Wet state — does not propagate, suppresses fire
+      trigger: "wet",
+      propagatesTo: null,
+      consumedBy: [],
+      duration: 5,
+    },
+    {
+      // Charged state — propagates through conductors
+      trigger: "charged",
+      propagatesTo: {
+        condition: "adjacent",
+        materialProperty: "conductivity",
+        threshold: 0.5,
+        effect: "charged",
+        delay: 0,
+      },
+      consumedBy: [],
+    },
+  ],
+
+  // Fluid-fire interactions
+  fluidFireInteractions: {
+    // Fluids with suppresses_fire tag extinguish fire and apply wet
+    suppressors: ["water"],
+    // Fluids with intensifies_fire tag lower fire spread threshold
+    intensifiers: ["oil"],
+    intensifierThresholdMultiplier: 0.3,
+  },
+}

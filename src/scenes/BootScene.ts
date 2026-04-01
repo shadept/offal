@@ -17,6 +17,10 @@ export const TEX = {
   VOID: 'tile_void',
   // Ambient
   SPARK: 'particle_spark',
+  // Physics (Phase 4)
+  FIRE_PARTICLE: 'particle_fire',
+  FIRE_OVERLAY: 'tile_fire_overlay',
+  FLUID_OVERLAY: 'tile_fluid_overlay',
 } as const;
 
 /** Get the texture key for a species. Convention: `entity_{speciesId}` */
@@ -40,6 +44,7 @@ export class BootScene extends Scene {
     // Generate textures
     this.generateTileTextures();
     this.generateSpeciesTextures();
+    this.generatePhysicsTextures();
 
     // Show brief boot message then start game
     const text = this.add.text(
@@ -158,6 +163,52 @@ export class BootScene extends Scene {
         ctx.fill();
       });
     }
+  }
+
+  /** Generate textures for fire and fluid overlays. */
+  private generatePhysicsTextures(): void {
+    const S = TILE_SIZE;
+
+    // ── Fire particle (small bright orange/yellow dot) ──
+    this.generateTile(TEX.FIRE_PARTICLE, (ctx) => {
+      const gradient = ctx.createRadialGradient(3, 3, 0, 3, 3, 3);
+      gradient.addColorStop(0, '#ffdd44');
+      gradient.addColorStop(0.5, '#ff6622');
+      gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 6, 6);
+    }, 6, 6);
+
+    // ── Fire overlay (semi-transparent orange glow over tile) ──
+    this.generateTile(TEX.FIRE_OVERLAY, (ctx) => {
+      ctx.fillStyle = 'rgba(255, 80, 0, 0.35)';
+      ctx.fillRect(0, 0, S, S);
+      // Bright center
+      const gradient = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S * 0.6);
+      gradient.addColorStop(0, 'rgba(255, 200, 50, 0.3)');
+      gradient.addColorStop(1, 'rgba(255, 80, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, S, S);
+    });
+
+    // ── Fluid overlay (semi-transparent, tinted per-material at runtime) ──
+    this.generateTile(TEX.FLUID_OVERLAY, (ctx) => {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.fillRect(0, 0, S, S);
+      // Subtle wave pattern
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, S * 0.3);
+      ctx.quadraticCurveTo(S * 0.25, S * 0.2, S * 0.5, S * 0.3);
+      ctx.quadraticCurveTo(S * 0.75, S * 0.4, S, S * 0.3);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, S * 0.6);
+      ctx.quadraticCurveTo(S * 0.25, S * 0.5, S * 0.5, S * 0.6);
+      ctx.quadraticCurveTo(S * 0.75, S * 0.7, S, S * 0.6);
+      ctx.stroke();
+    });
   }
 
   private generateTile(

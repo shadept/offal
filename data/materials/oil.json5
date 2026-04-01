@@ -1,0 +1,13 @@
+{
+  id: "oil",
+  name: "Oil",
+  flammability: 0.9,
+  conductivity: 0.0,
+  hardness: 0.0,
+  mass: 0.4,
+  color: "#332211",
+  // Fluid-specific properties
+  viscosity: 0.6,
+  evaporationRate: 0.005,
+  tags: ["fluid", "intensifies_fire"],
+}

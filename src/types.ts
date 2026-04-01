@@ -23,7 +23,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death';
+export type VisualEventType = 'move' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {
@@ -67,6 +67,10 @@ export interface MaterialData {
   hardness: number;
   mass: number;
   color: string;
+  // Fluid/gas-specific (optional)
+  viscosity?: number;
+  evaporationRate?: number;
+  tags?: string[];
 }
 
 /** Tile definition loaded from data/tiles.json5 */
@@ -115,6 +119,38 @@ export interface MapData {
   spawns?: { species: string; x: number; y: number }[];
 }
 
+/** Physics rule propagation config */
+export interface PhysicsRulePropagation {
+  condition: string;
+  materialProperty: string;
+  threshold: number;
+  effect: string;
+  delay: number;
+}
+
+/** A single physics rule loaded from data/physics-rules.json5 */
+export interface PhysicsRuleData {
+  trigger: string;
+  propagatesTo: PhysicsRulePropagation | null;
+  consumedBy: string[];
+  damagePerTurn?: number;
+  burnStatusOnOrganic?: boolean;
+  duration?: number;
+}
+
+/** Fluid-fire interaction config */
+export interface FluidFireInteractions {
+  suppressors: string[];
+  intensifiers: string[];
+  intensifierThresholdMultiplier: number;
+}
+
+/** Full physics rules data */
+export interface PhysicsRulesData {
+  rules: PhysicsRuleData[];
+  fluidFireInteractions: FluidFireInteractions;
+}
+
 /** Data registry — holds all loaded JSON5 data */
 export interface DataRegistry {
   materials: Map<string, MaterialData>;
@@ -123,4 +159,5 @@ export interface DataRegistry {
   species: Map<string, SpeciesData>;
   maps: Map<string, MapData>;
   factions: Map<string, FactionData>;
+  physicsRules: PhysicsRulesData;
 }

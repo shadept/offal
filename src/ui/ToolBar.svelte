@@ -8,8 +8,8 @@
     { id: 'inspect', label: 'Inspect' },
     { id: 'tile_paint', label: 'Paint Tile' },
     { id: 'entity_spawn', label: 'Spawn Entity' },
-    { id: 'fluid_place', label: 'Place Fluid', disabled: true, phase: '4' },
-    { id: 'gas_place', label: 'Place Gas', disabled: true, phase: '4' },
+    { id: 'fluid_place', label: 'Place Fluid' },
+    { id: 'gas_place', label: 'Place Gas' },
   ];
 </script>
 
@@ -55,8 +55,26 @@
           >{sp.name}</button>
         {/each}
       </div>
-    {:else if store.activeTool === 'fluid_place' || store.activeTool === 'gas_place'}
-      <div class="sb-placeholder">Coming in Phase 4.</div>
+    {:else if store.activeTool === 'fluid_place'}
+      <div class="sb-paint-types">
+        {#each store.ctrl.getPlaceableFluids() as f}
+          <button
+            class="sb-paint-btn"
+            class:active={store.ctrl.selectedFluidId === f.id}
+            onclick={() => store.ctrl.setSelectedFluid(f.id)}
+          >{f.name}</button>
+        {/each}
+      </div>
+    {:else if store.activeTool === 'gas_place'}
+      <div class="sb-paint-types">
+        {#each store.ctrl.getPlaceableGases() as g}
+          <button
+            class="sb-paint-btn"
+            class:active={store.ctrl.selectedGasId === g.id}
+            onclick={() => store.ctrl.setSelectedGas(g.id)}
+          >{g.name}</button>
+        {/each}
+      </div>
     {/if}
   </div>
 </div>
@@ -113,9 +131,5 @@
     font-size: 10px;
     color: #445;
     margin-left: 4px;
-  }
-  .sb-placeholder {
-    color: #445;
-    font-style: italic;
   }
 </style>
