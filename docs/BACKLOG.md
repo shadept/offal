@@ -125,20 +125,20 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 
 ---
 
-## Phase 5 — Dungeon Generation
+## Phase 5 — Dungeon Generation ✅ COMPLETE
 *Goal: press a button and get a new procedural ship to explore.*
 
-- [ ] 🔴 BSP room splitter
-- [ ] 🔴 Room connector (corridors)
-- [ ] 🔴 Room function assignment from pool (bridge, cargo, lab, etc.)
-- [ ] 🟡 Room population: entities from room's population table
-- [ ] 🟡 Loot placement
-- [ ] 🟡 Ship infrastructure tiles (pipes, vents, conduits)
-- [ ] 🟡 "New ship" button in sandbox
-- [ ] 🟡 Seed input for reproducible generation
-- [ ] ⚪ Arrival state: pre-placed events (fire already started, gas leak, entities mid-fight)
+- [x] ✅ BSP room splitter
+- [x] ✅ Room connector (corridors)
+- [x] ✅ Room function assignment from pool (bridge, cargo, lab, etc.)
+- [x] ✅ Room population: entities from room's population table
+- [x] ✅ Loot placement
+- [x] ✅ Ship infrastructure tiles (pipes, vents, conduits)
+- [x] ✅ "New ship" button in sandbox
+- [x] ✅ Seed input for reproducible generation
+- [x] ✅ Arrival state: pre-placed events (fire already started, gas leak, entities mid-fight)
 
-**Exit criteria**: generate a new ship, rooms connected, player can explore, enemies placed.
+**Exit criteria**: generate a new ship, rooms connected, player can explore, enemies placed. ✅
 
 ---
 

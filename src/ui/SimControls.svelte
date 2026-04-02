@@ -2,7 +2,29 @@
   import type { SandboxStore } from './sandboxStore.svelte';
 
   let { store }: { store: SandboxStore } = $props();
+  let seedInput = $state('');
 </script>
+
+<!-- Ship Generation -->
+<div class="sb-section">
+  <div class="sb-section-title">Ship Generation</div>
+
+  <div class="sb-seed-row">
+    <input
+      type="text"
+      class="sb-seed-input"
+      placeholder="Seed (blank = random)"
+      bind:value={seedInput}
+    />
+  </div>
+
+  <button class="sb-gen-btn" onclick={() => {
+    store.ctrl.generateNewShip(seedInput || undefined);
+    seedInput = '';
+  }}>
+    New Ship
+  </button>
+</div>
 
 <!-- Simulation -->
 <div class="sb-section">
@@ -134,4 +156,32 @@
     color: #445;
     margin-left: 4px;
   }
+  .sb-seed-row {
+    margin-bottom: 6px;
+  }
+  .sb-seed-input {
+    width: 100%;
+    background: #0a0a12;
+    border: 1px solid #334;
+    color: #ccdddd;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 2px;
+    box-sizing: border-box;
+  }
+  .sb-seed-input::placeholder { color: #445; }
+  .sb-gen-btn {
+    background: #2a1a3e;
+    border: 1px solid #5a3a7a;
+    color: #cc99ff;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-radius: 2px;
+    width: 100%;
+    font-weight: bold;
+  }
+  .sb-gen-btn:hover { background: #3a2a5e; }
 </style>

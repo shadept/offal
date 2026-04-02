@@ -29,6 +29,8 @@ import { TilePhysicsMap } from '../ecs/systems/tilePhysics';
 import { VisualEventQueue } from '../visual/EventQueue';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
 import { loadMap } from '../map/mapLoader';
+import { generateShip } from '../map/dungeonGen';
+import type { ArrivalEvent, RoomInfo } from '../map/dungeonGen';
 import { computeFOV } from '../map/fov';
 import { TurnPhase, TileType, Visibility } from '../types';
 import type { VisualEvent } from '../types';
@@ -117,6 +119,10 @@ export class GameScene extends Scene {
   // ── Debug overlays (one Graphics object per enabled component overlay) ──
   private debugOverlays = new Map<string, Phaser.GameObjects.Graphics>();
 
+  // ── Dungeon generation ──
+  private currentSeed = '';
+  private currentRooms: RoomInfo[] = [];
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -130,9 +136,12 @@ export class GameScene extends Scene {
     this.turnSystem = new TurnSystem();
     this.eventQueue = new VisualEventQueue();
 
-    // ── Map (data-driven) ──
-    const mapResult = loadMap('test_ship');
-    this.tileMap = mapResult.tileMap;
+    // ── Map (procedural dungeon generation) ──
+    const shipResult = generateShip();
+    this.tileMap = shipResult.tileMap;
+    this.currentSeed = shipResult.seed;
+    this.currentRooms = shipResult.rooms;
+    console.log(`[dungeon] Generated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
 
     // ── Containers (tile layer below overlay layer below entity layer) ──
     this.tileContainer = this.add.container(0, 0);
@@ -142,12 +151,15 @@ export class GameScene extends Scene {
     // ── Tile physics state ──
     this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
 
+    // ── Apply arrival events (pre-existing fire, gas leaks) ──
+    this.applyArrivalEvents(shipResult.arrivalEvents);
+
     // ── Spawn player at map-defined position ──
     const registry = getRegistry();
     const playerSpecies = registry.species.get('salvager');
     this.playerEid = spawnPlayer(this.world, {
-      x: mapResult.playerSpawn.x,
-      y: mapResult.playerSpawn.y,
+      x: shipResult.playerSpawn.x,
+      y: shipResult.playerSpawn.y,
       speed: playerSpecies?.speed ?? 100,
       viewRange: playerSpecies?.fovRange ?? 8,
       maxHp: playerSpecies?.maxHp ?? 25,
@@ -163,7 +175,7 @@ export class GameScene extends Scene {
     this.createEntitySprite(this.playerEid, 'salvager');
 
     // ── Spawn map-defined entities ──
-    this.spawnMapEntities(mapResult.spawns);
+    this.spawnMapEntities(shipResult.spawns);
 
     // ── Initial FOV ──
     this.updateFOV();
@@ -238,6 +250,7 @@ export class GameScene extends Scene {
       if (event === 'selection_changed') this.updateDebugOverlays();
       if (event === 'overlays_changed') this.updateDebugOverlays();
       if (event === 'field_edited') this.onFieldEdited(data as { eid: number; component: string });
+      if (event === 'generate_ship') this.regenerateShip(data as { seed?: string } | undefined);
     });
   }
 
@@ -831,6 +844,132 @@ export class GameScene extends Scene {
     clearEntityAICache(eid);
     removeEntity(this.world, eid);
   }
+
+  // ════════════════════════════════════════════════════════════
+  // DUNGEON GENERATION
+  // ════════════════════════════════════════════════════════════
+
+  /** Apply pre-placed arrival events (fire, gas leaks) to the tile physics map. */
+  private applyArrivalEvents(events: ArrivalEvent[]): void {
+    for (const event of events) {
+      if (!this.tileMap.inBounds(event.x, event.y)) continue;
+      switch (event.type) {
+        case 'fire':
+          this.tilePhysics.addSurfaceState(event.x, event.y, 'on_fire');
+          {
+            const state = this.tilePhysics.get(event.x, event.y);
+            if (state) state.temperature = Math.min(500, state.temperature + 100);
+          }
+          break;
+        case 'gas_leak':
+          this.tilePhysics.addGas(event.x, event.y, 'smoke', 0.4);
+          break;
+      }
+    }
+  }
+
+  /** Regenerate the entire ship. Destroys all existing state and rebuilds. */
+  private regenerateShip(opts?: { seed?: string }): void {
+    // ── Clear existing state ──
+    // Destroy all entity sprites
+    for (const [eid] of this.entitySprites) {
+      this.destroyEntitySprite(eid);
+    }
+    this.entitySprites.clear();
+    this.entitySpecies.clear();
+
+    // Destroy tile sprites and clear containers
+    for (const sprite of this.tileSprites) {
+      sprite?.destroy();
+    }
+    this.tileSprites = [];
+    this.tileContainer.removeAll(true);
+    this.overlayContainer.removeAll(true);
+    this.entityContainer.removeAll(true);
+
+    // Destroy fire/fluid overlays
+    for (const [, sprite] of this.fireOverlays) sprite.destroy();
+    this.fireOverlays.clear();
+    for (const [, emitter] of this.fireEmitters) emitter.destroy();
+    this.fireEmitters.clear();
+    for (const [, sprite] of this.fluidOverlays) sprite.destroy();
+    this.fluidOverlays.clear();
+
+    // Clear debug overlays
+    this.clearDebugOverlays();
+    this.sandbox.pinnedOverlays.clear();
+
+    // Remove all ECS entities
+    const allEntities = query(this.world, [Position]);
+    for (const eid of [...allEntities]) {
+      clearEntityAICache(eid);
+      removeEntity(this.world, eid);
+    }
+
+    // ── Generate new ship ──
+    const shipResult = generateShip(opts?.seed);
+    this.tileMap = shipResult.tileMap;
+    this.currentSeed = shipResult.seed;
+    this.currentRooms = shipResult.rooms;
+    console.log(`[dungeon] Regenerated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
+
+    // ── Rebuild physics ──
+    this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
+    this.applyArrivalEvents(shipResult.arrivalEvents);
+
+    // ── Spawn player ──
+    const registry = getRegistry();
+    const playerSpecies = registry.species.get('salvager');
+    this.playerEid = spawnPlayer(this.world, {
+      x: shipResult.playerSpawn.x,
+      y: shipResult.playerSpawn.y,
+      speed: playerSpecies?.speed ?? 100,
+      viewRange: playerSpecies?.fovRange ?? 8,
+      maxHp: playerSpecies?.maxHp ?? 25,
+      attackDamage: playerSpecies?.attackDamage ?? 5,
+      faction: playerSpecies?.faction ?? 'player',
+    });
+    Turn.energy[this.playerEid] = 100;
+
+    // ── Rebuild tile sprites ──
+    this.createTileSprites();
+
+    // ── Create player sprite ──
+    this.createEntitySprite(this.playerEid, 'salvager');
+
+    // ── Spawn entities ──
+    this.spawnMapEntities(shipResult.spawns);
+
+    // ── Rebind sandbox refs ──
+    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics);
+
+    // ── Camera ──
+    const mapPixelW = this.tileMap.width * TILE_SIZE;
+    const mapPixelH = this.tileMap.height * TILE_SIZE;
+    this.cameras.main.setBounds(0, 0, mapPixelW, mapPixelH);
+    const playerSprite = this.entitySprites.get(this.playerEid)!;
+    this.cameras.main.startFollow(playerSprite, true, 0.15, 0.15,
+      -TILE_SIZE / 2, -TILE_SIZE / 2);
+
+    // ── Reset turn system ──
+    this.turnSystem.reset();
+
+    // ── FOV + render ──
+    this.updateFOV();
+    this.renderTiles();
+    this.renderPhysicsOverlays();
+
+    // Re-place spark zones for new map
+    this.placeSparkZones();
+
+    this.sandbox.emit('state_changed');
+  }
+
+  /** Get current ship seed (for sandbox display). */
+  getCurrentSeed(): string { return this.currentSeed; }
+
+  /** Get current rooms (for sandbox display). */
+  getCurrentRooms(): RoomInfo[] { return this.currentRooms; }
 
   // ════════════════════════════════════════════════════════════
   // PHYSICS OVERLAYS

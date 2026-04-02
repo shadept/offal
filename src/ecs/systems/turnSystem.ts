@@ -146,4 +146,11 @@ export class TurnSystem {
     this.turnCount++;
     this.phase = TurnPhase.PLAYER_INPUT;
   }
+
+  /** Reset turn system state (used when regenerating ship). */
+  reset(): void {
+    this.phase = TurnPhase.PLAYER_INPUT;
+    this.turnCount = 0;
+    this.pendingAction = null;
+  }
 }

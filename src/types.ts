@@ -151,6 +151,26 @@ export interface PhysicsRulesData {
   fluidFireInteractions: FluidFireInteractions;
 }
 
+/** Room population entry */
+export interface RoomPopulationEntry {
+  species: string;
+  weight: number;
+  min: number;
+  max: number;
+}
+
+/** Room function definition loaded from data/rooms.json5 */
+export interface RoomData {
+  id: string;
+  name: string;
+  weight: number;
+  maxCount: number;
+  population: RoomPopulationEntry[];
+  loot: { min: number; max: number };
+  infrastructure: string[];
+  arrivalEvents: string[];
+}
+
 /** Data registry — holds all loaded JSON5 data */
 export interface DataRegistry {
   materials: Map<string, MaterialData>;
@@ -160,4 +180,5 @@ export interface DataRegistry {
   maps: Map<string, MapData>;
   factions: Map<string, FactionData>;
   physicsRules: PhysicsRulesData;
+  rooms: Map<string, RoomData>;
 }

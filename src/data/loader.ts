@@ -3,7 +3,7 @@
  * All game content is data-driven; no hardcoded content in game logic.
  */
 import JSON5 from 'json5';
-import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, DataRegistry } from '../types';
+import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, DataRegistry } from '../types';
 
 // Vite glob imports — `?raw` imports file contents as strings
 const materialFiles = import.meta.glob('/data/materials/*.json5', {
@@ -37,6 +37,12 @@ const factionFiles = import.meta.glob('/data/factions.json5', {
 });
 
 const physicsRulesFiles = import.meta.glob('/data/physics-rules.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const roomFiles = import.meta.glob('/data/rooms.json5', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -142,6 +148,22 @@ function parsePhysicsRules(): PhysicsRulesData {
   return defaultRules;
 }
 
+function parseRooms(): Map<string, RoomData> {
+  const map = new Map<string, RoomData>();
+  for (const [path, raw] of Object.entries(roomFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string);
+      const list: RoomData[] = parsed.rooms ?? [parsed];
+      for (const room of list) {
+        if (room.id) map.set(room.id, room);
+      }
+    } catch (e) {
+      console.error(`Failed to parse room file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
 let registry: DataRegistry | null = null;
 
 /** Load all JSON5 data files and return the registry. Cached after first call. */
@@ -149,6 +171,8 @@ export function loadData(): DataRegistry {
   if (registry) return registry;
 
   const { byId: tiles, byIndex: tilesByIndex } = parseTiles();
+
+  const rooms = parseRooms();
 
   registry = {
     materials: parseMaterials(),
@@ -158,6 +182,7 @@ export function loadData(): DataRegistry {
     maps: parseMaps(),
     factions: parseFactions(),
     physicsRules: parsePhysicsRules(),
+    rooms,
   };
 
   console.log(
@@ -166,7 +191,8 @@ export function loadData(): DataRegistry {
     `${registry.species.size} species, ` +
     `${registry.factions.size} factions, ` +
     `${registry.maps.size} maps, ` +
-    `${registry.physicsRules.rules.length} physics rules`
+    `${registry.physicsRules.rules.length} physics rules, ` +
+    `${registry.rooms.size} room types`
   );
   return registry;
 }

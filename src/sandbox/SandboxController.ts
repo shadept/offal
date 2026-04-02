@@ -407,4 +407,12 @@ export class SandboxController {
     this.aiOnly = v;
     this.emit('aionly_changed', v);
   }
+
+  /** Request ship regeneration. GameScene handles the actual work. */
+  generateNewShip(seed?: string): void {
+    this.selectedTile = null;
+    this.selectedEntity = null;
+    this.autoPlay = false;
+    this.emit('generate_ship', { seed });
+  }
 }

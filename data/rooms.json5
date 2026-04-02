@@ -1,0 +1,113 @@
+{
+  // Room function definitions for procedural ship generation.
+  // Each room function has a weight (likelihood of assignment),
+  // population table (species + density), and optional features.
+
+  rooms: [
+    {
+      id: "bridge",
+      name: "Bridge",
+      weight: 1,           // only one per ship typically
+      maxCount: 1,
+      // Population: species id → { weight, min, max per room }
+      population: [
+        { species: "security_bot", weight: 3, min: 0, max: 1 },
+        { species: "drone_scout", weight: 2, min: 0, max: 1 },
+      ],
+      loot: { min: 1, max: 3 },
+      // Infrastructure tile features
+      infrastructure: ["console", "conduit"],
+      // Arrival state events that can pre-exist
+      arrivalEvents: ["fire", "gas_leak"],
+    },
+    {
+      id: "cargo",
+      name: "Cargo Bay",
+      weight: 3,
+      maxCount: 3,
+      population: [
+        { species: "void_rat", weight: 4, min: 0, max: 3 },
+        { species: "hull_leech", weight: 2, min: 0, max: 1 },
+      ],
+      loot: { min: 2, max: 5 },
+      infrastructure: ["pipe", "crate"],
+      arrivalEvents: ["fire"],
+    },
+    {
+      id: "lab",
+      name: "Laboratory",
+      weight: 2,
+      maxCount: 2,
+      population: [
+        { species: "hull_leech", weight: 3, min: 0, max: 2 },
+        { species: "drone_scout", weight: 2, min: 0, max: 1 },
+      ],
+      loot: { min: 1, max: 3 },
+      infrastructure: ["console", "vent"],
+      arrivalEvents: ["gas_leak"],
+    },
+    {
+      id: "medical",
+      name: "Medical Bay",
+      weight: 1,
+      maxCount: 1,
+      population: [
+        { species: "void_rat", weight: 2, min: 0, max: 1 },
+      ],
+      loot: { min: 2, max: 4 },
+      infrastructure: ["console"],
+      arrivalEvents: [],
+    },
+    {
+      id: "engineering",
+      name: "Engineering",
+      weight: 2,
+      maxCount: 2,
+      population: [
+        { species: "security_bot", weight: 3, min: 0, max: 2 },
+        { species: "void_rat", weight: 2, min: 0, max: 2 },
+      ],
+      loot: { min: 1, max: 3 },
+      infrastructure: ["pipe", "conduit", "vent"],
+      arrivalEvents: ["fire", "gas_leak"],
+    },
+    {
+      id: "storage",
+      name: "Storage Room",
+      weight: 4,
+      maxCount: 4,
+      population: [
+        { species: "void_rat", weight: 5, min: 0, max: 2 },
+        { species: "hull_leech", weight: 1, min: 0, max: 1 },
+      ],
+      loot: { min: 1, max: 4 },
+      infrastructure: ["crate"],
+      arrivalEvents: [],
+    },
+    {
+      id: "crew_quarters",
+      name: "Crew Quarters",
+      weight: 3,
+      maxCount: 3,
+      population: [
+        { species: "void_rat", weight: 3, min: 0, max: 2 },
+      ],
+      loot: { min: 0, max: 2 },
+      infrastructure: [],
+      arrivalEvents: ["fire"],
+    },
+    {
+      id: "armory",
+      name: "Armory",
+      weight: 1,
+      maxCount: 1,
+      population: [
+        { species: "security_bot", weight: 4, min: 1, max: 2 },
+        { species: "drone_scout", weight: 2, min: 0, max: 1 },
+      ],
+      loot: { min: 2, max: 5 },
+      infrastructure: ["conduit"],
+      arrivalEvents: [],
+    },
+  ],
+}
