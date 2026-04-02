@@ -23,7 +23,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread';
+export type VisualEventType = 'move' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {
@@ -67,9 +67,12 @@ export interface MaterialData {
   hardness: number;
   mass: number;
   color: string;
-  // Fluid/gas-specific (optional)
+  // Fluid-specific (optional)
   viscosity?: number;
   evaporationRate?: number;
+  // Gas-specific (optional)
+  diffusionRate?: number;
+  dissipationRate?: number;
   tags?: string[];
 }
 
@@ -84,6 +87,10 @@ export interface TileData {
   interactable?: boolean;
   opensTo?: string;
   closesTo?: string;
+  /** Max hit points (undefined = indestructible) */
+  hp?: number;
+  /** Tile ID to convert to when destroyed */
+  destroyedTo?: string;
 }
 
 /** Species definition loaded from data/species/*.json5 */

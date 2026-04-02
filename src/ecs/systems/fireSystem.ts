@@ -8,7 +8,7 @@
  * Architecture: logic only. Pushes visual events to the queue.
  * Never renders directly.
  */
-import { query, hasComponent } from 'bitecs';
+import { query, hasComponent, addComponent } from 'bitecs';
 import { Position, Health, Dead } from '../components';
 import { getRegistry } from '../../data/loader';
 import type { TileMap } from '../../map/TileMap';
@@ -100,8 +100,39 @@ export function processFireSystem(
     // Raise temperature
     state.temperature = Math.min(500, state.temperature + 50);
 
+    // Emit smoke gas (burning things produce smoke)
+    const smokeConc = state.gases.get('smoke') ?? 0;
+    if (smokeConc < 0.8) {
+      state.gases.set('smoke', Math.min(1, smokeConc + 0.15));
+    }
+
     // Damage entities on this tile
     damageEntitiesOnTile(x, y, damagePerTurn, world, eventQueue);
+
+    // Damage destructible tiles (e.g. wooden doors burn down)
+    const tileIdx = tileMap.idx(x, y);
+    if (physics.tileHp[tileIdx] > 0) {
+      physics.tileHp[tileIdx] -= damagePerTurn;
+      if (physics.tileHp[tileIdx] <= 0) {
+        physics.tileHp[tileIdx] = -1;
+        const tileData = registry.tilesByIndex.get(tileMap.get(x, y));
+        const destroyedTile = tileData?.destroyedTo
+          ? registry.tiles.get(tileData.destroyedTo)
+          : null;
+        if (destroyedTile) {
+          tileMap.set(x, y, destroyedTile.index);
+          // Fire goes out — nothing left to burn
+          state.surfaceStates.delete('on_fire');
+          state.temperature = Math.max(0, state.temperature - 100);
+          eventQueue.push({
+            type: 'tile_destroyed',
+            entityId: -1,
+            data: { x, y, newTileIndex: destroyedTile.index },
+          });
+          continue; // Skip spread — tile is gone
+        }
+      }
+    }
 
     // Decrement fire delay
     if (state.fireDelay > 0) {
@@ -186,23 +217,20 @@ function damageEntitiesOnTile(
     if (hasComponent(world, eid, Dead)) continue;
     if (Position.x[eid] !== x || Position.y[eid] !== y) continue;
 
-    // Enqueue hit flash with damage commit
-    eventQueue.push(
-      {
-        type: 'hit_flash',
+    Health.hp[eid] -= damage;
+    eventQueue.push({
+      type: 'hit_flash',
+      entityId: eid,
+      data: { damage, source: 'fire' },
+    });
+
+    if (Health.hp[eid] <= 0) {
+      addComponent(world, eid, Dead);
+      eventQueue.push({
+        type: 'death',
         entityId: eid,
-        data: { damage, source: 'fire' },
-      },
-      () => {
-        Health.hp[eid] -= damage;
-        if (Health.hp[eid] <= 0) {
-          eventQueue.push({
-            type: 'death',
-            entityId: eid,
-            data: { cause: 'fire' },
-          });
-        }
-      },
-    );
+        data: { cause: 'fire' },
+      });
+    }
   }
 }

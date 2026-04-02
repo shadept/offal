@@ -2,7 +2,7 @@
  * Movement system.
  * Validates and processes movement for entities.
  * Produces visual events — does NOT directly update Position.
- * Position updates happen in the visual event's onCommit callback.
+ * Position updates happen immediately; visual events are purely descriptive.
  *
  * Tile interactions (doors) are data-driven via the tile registry.
  */
@@ -75,13 +75,11 @@ export function tryMove(
   if (tileData?.interactable && tileData.opensTo) {
     const openTile = getRegistry().tiles.get(tileData.opensTo);
     if (openTile) {
-      const doorEvent: VisualEvent = {
+      map.set(toX, toY, openTile.index);
+      eventQueue.push({
         type: 'door_open',
         entityId: eid,
         data: { x: toX, y: toY },
-      };
-      eventQueue.push(doorEvent, () => {
-        map.set(toX, toY, openTile.index);
       });
       return { moved: false, cost: DOOR_COST, openedDoor: true };
     }
@@ -97,16 +95,13 @@ export function tryMove(
     return { moved: false, cost: 0, openedDoor: false };
   }
 
-  // Valid move — enqueue visual event
-  const moveEvent: VisualEvent = {
+  // Commit position immediately, then enqueue visual event
+  Position.x[eid] = toX;
+  Position.y[eid] = toY;
+  eventQueue.push({
     type: 'move',
     entityId: eid,
     data: { fromX, fromY, toX, toY },
-  };
-  eventQueue.push(moveEvent, () => {
-    // Commit position change when animation completes
-    Position.x[eid] = toX;
-    Position.y[eid] = toY;
   });
 
   return { moved: true, cost: MOVE_COST, openedDoor: false };

@@ -21,6 +21,8 @@ export const TEX = {
   FIRE_PARTICLE: 'particle_fire',
   FIRE_OVERLAY: 'tile_fire_overlay',
   FLUID_OVERLAY: 'tile_fluid_overlay',
+  SMOKE_PARTICLE: 'particle_smoke',
+  GAS_OVERLAY: 'tile_gas_overlay',
 } as const;
 
 /** Get the texture key for a species. Convention: `entity_{speciesId}` */
@@ -208,6 +210,31 @@ export class BootScene extends Scene {
       ctx.quadraticCurveTo(S * 0.25, S * 0.5, S * 0.5, S * 0.6);
       ctx.quadraticCurveTo(S * 0.75, S * 0.7, S, S * 0.6);
       ctx.stroke();
+    });
+
+    // ── Smoke particle (soft fuzzy circle) ──
+    this.generateTile(TEX.SMOKE_PARTICLE, (ctx) => {
+      const gradient = ctx.createRadialGradient(5, 5, 0, 5, 5, 5);
+      gradient.addColorStop(0, 'rgba(180, 180, 190, 0.6)');
+      gradient.addColorStop(0.5, 'rgba(140, 140, 150, 0.3)');
+      gradient.addColorStop(1, 'rgba(100, 100, 110, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 10, 10);
+    }, 10, 10);
+
+    // ── Gas overlay (wispy, semi-transparent, tinted per-material at runtime) ──
+    this.generateTile(TEX.GAS_OVERLAY, (ctx) => {
+      // Soft cloudy blobs instead of a flat fill
+      const drawBlob = (cx: number, cy: number, r: number, alpha: number) => {
+        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      };
+      drawBlob(S * 0.3, S * 0.4, S * 0.4, 0.3);
+      drawBlob(S * 0.65, S * 0.35, S * 0.35, 0.25);
+      drawBlob(S * 0.5, S * 0.65, S * 0.3, 0.2);
     });
   }
 

@@ -5,7 +5,9 @@
   conductivity: 0.0,
   hardness: 0.0,
   mass: 0.05,
-  color: "#666666",
+  color: "#888888",
   // Gas-specific properties
+  diffusionRate: 0.25,
+  dissipationRate: 0.04,
   tags: ["gas"],
 }

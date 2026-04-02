@@ -23,8 +23,9 @@ const ADJ = [
 /** Minimum concentration to be considered present */
 const MIN_CONCENTRATION = 0.01;
 
-/** How much fluid spreads to neighbors per turn (base, modified by viscosity) */
-const BASE_SPREAD_RATE = 0.15;
+/** How much fluid spreads to neighbors per turn (base, modified by viscosity).
+ *  Kept low so liquids mostly pool in place (think puddle, not flood). */
+const BASE_SPREAD_RATE = 0.04;
 
 /**
  * Run fluid system for one turn.

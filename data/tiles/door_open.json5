@@ -2,9 +2,11 @@
   id: "door_open",
   index: 4,
   name: "Door (Open)",
-  material: "steel",
+  material: "wood",
   blocksMovement: false,
   blocksLight: false,
   interactable: true,
   closesTo: "door_closed",
+  hp: 10,
+  destroyedTo: "floor",
 }

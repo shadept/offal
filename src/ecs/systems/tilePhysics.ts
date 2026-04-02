@@ -27,12 +27,19 @@ export class TilePhysicsMap {
   readonly width: number;
   readonly height: number;
   private states: TilePhysicsState[];
+  /**
+   * Per-tile hit points. -1 = indestructible. Initialized from tile data
+   * via initTileHp(). Fire (and other sources) reduce this; when it reaches
+   * 0 the tile is destroyed.
+   */
+  tileHp: number[];
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
     const size = width * height;
     this.states = new Array(size);
+    this.tileHp = new Array(size).fill(-1);
     for (let i = 0; i < size; i++) {
       this.states[i] = {
         fluids: new Map(),

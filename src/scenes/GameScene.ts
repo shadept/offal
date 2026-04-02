@@ -25,6 +25,7 @@ import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove, getBlockingEntity } from '../ecs/systems/movementSystem';
 import { processFireSystem } from '../ecs/systems/fireSystem';
 import { processFluidSystem } from '../ecs/systems/fluidSystem';
+import { processGasSystem } from '../ecs/systems/gasSystem';
 import { TilePhysicsMap } from '../ecs/systems/tilePhysics';
 import { VisualEventQueue } from '../visual/EventQueue';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
@@ -88,6 +89,10 @@ export class GameScene extends Scene {
   private fluidOverlays = new Map<number, Phaser.GameObjects.Image>();
   /** Fire particle emitters indexed by tile flat index */
   private fireEmitters = new Map<number, Phaser.GameObjects.Particles.ParticleEmitter>();
+  /** Gas overlay sprites indexed by tile flat index */
+  private gasOverlays = new Map<number, Phaser.GameObjects.Image>();
+  /** Gas particle emitters indexed by tile flat index */
+  private gasEmitters = new Map<number, Phaser.GameObjects.Particles.ParticleEmitter>();
 
   // ── Ambient ──
   private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -150,6 +155,20 @@ export class GameScene extends Scene {
 
     // ── Tile physics state ──
     this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
+
+    // Initialize tile HP from tile data
+    {
+      const reg = getRegistry();
+      for (let y = 0; y < this.tileMap.height; y++) {
+        for (let x = 0; x < this.tileMap.width; x++) {
+          const idx = this.tileMap.idx(x, y);
+          const tileData = reg.tilesByIndex.get(this.tileMap.tiles[idx]);
+          if (tileData?.hp != null) {
+            this.tilePhysics.tileHp[idx] = tileData.hp;
+          }
+        }
+      }
+    }
 
     // ── Apply arrival events (pre-existing fire, gas leaks) ──
     this.applyArrivalEvents(shipResult.arrivalEvents);
@@ -597,6 +616,7 @@ export class GameScene extends Scene {
     // Run physics systems each enemy turn
     processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
     processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
+    processGasSystem(this.tileMap, this.tilePhysics, this.eventQueue);
 
     this.turnSystem.advance(this.world);
 
@@ -835,6 +855,56 @@ export class GameScene extends Scene {
         onComplete();
       }
     });
+
+    // ── Gas spread event ──
+    this.eventQueue.registerHandler('gas_spread', (event: VisualEvent, onComplete: () => void) => {
+      const { x, y } = event.data as { x: number; y: number; gasId: string; color: string };
+      const visible = this.sandbox?.revealAll ||
+        this.tileMap.getVisibility(x, y) === Visibility.VISIBLE;
+
+      // Update gas overlay
+      this.updateGasOverlay(x, y);
+
+      if (!visible || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+
+      // Fade-in for new gas tile
+      const idx = this.tileMap.idx(x, y);
+      const overlay = this.gasOverlays.get(idx);
+      if (overlay) {
+        overlay.setAlpha(0);
+        this.tweens.add({
+          targets: overlay,
+          alpha: 0.35,
+          duration: 300,
+          onComplete: () => onComplete(),
+        });
+      } else {
+        onComplete();
+      }
+    });
+
+    // ── Tile destroyed event (e.g. door burned down) ──
+    this.eventQueue.registerHandler('tile_destroyed', (event: VisualEvent, onComplete: () => void) => {
+      const { x, y, newTileIndex } = event.data as { x: number; y: number; newTileIndex: number };
+      const idx = this.tileMap.idx(x, y);
+      const sprite = this.tileSprites[idx];
+
+      // Update tile sprite texture
+      if (sprite) {
+        const tex = TILE_TEX[newTileIndex] ?? TEX.VOID;
+        sprite.setTexture(tex);
+      }
+
+      // Clean up any fire/fluid/gas overlays on this tile
+      this.updateFireOverlay(x, y);
+      this.updateFluidOverlay(x, y);
+      this.updateGasOverlay(x, y);
+
+      onComplete();
+    });
   }
 
   /** Remove a dead entity from world and visual layer. */
@@ -1060,12 +1130,79 @@ export class GameScene extends Scene {
     }
   }
 
-  /** Refresh all physics overlays (fire + fluid) for the entire map. */
+  /** Create or update gas overlay for a tile. */
+  private updateGasOverlay(x: number, y: number): void {
+    const idx = this.tileMap.idx(x, y);
+    const state = this.tilePhysics.get(x, y);
+    if (!state) return;
+
+    // Find highest-concentration gas
+    let maxGas = '';
+    let maxConc = 0;
+    for (const [gasId, conc] of state.gases) {
+      if (conc > maxConc) {
+        maxConc = conc;
+        maxGas = gasId;
+      }
+    }
+
+    if (maxConc > 0.01) {
+      const material = getRegistry().materials.get(maxGas);
+      const color = material?.color ?? '#888888';
+      const tint = parseInt(color.replace('#', ''), 16);
+
+      if (!this.gasOverlays.has(idx)) {
+        const sprite = this.add.image(x * TILE_SIZE, y * TILE_SIZE, TEX.GAS_OVERLAY);
+        sprite.setOrigin(0, 0);
+        sprite.setDepth(2);
+        this.overlayContainer.add(sprite);
+        this.gasOverlays.set(idx, sprite);
+      }
+
+      const sprite = this.gasOverlays.get(idx)!;
+      sprite.setTint(tint);
+      sprite.setAlpha(Math.min(0.5, maxConc * 0.6));
+      sprite.setVisible(true);
+
+      // Create drifting smoke particle emitter if not present
+      if (!this.gasEmitters.has(idx)) {
+        const emitter = this.add.particles(
+          x * TILE_SIZE + TILE_SIZE / 2,
+          y * TILE_SIZE + TILE_SIZE / 2,
+          TEX.SMOKE_PARTICLE,
+          {
+            speed: { min: 3, max: 10 },
+            angle: { min: 240, max: 300 },
+            lifespan: { min: 600, max: 1200 },
+            alpha: { start: 0.4, end: 0 },
+            scale: { start: 0.8, end: 1.5 },
+            frequency: 500,
+            quantity: 1,
+            tint,
+          },
+        );
+        this.gasEmitters.set(idx, emitter);
+      }
+    } else {
+      // Remove gas overlay and emitter
+      if (this.gasOverlays.has(idx)) {
+        this.gasOverlays.get(idx)!.destroy();
+        this.gasOverlays.delete(idx);
+      }
+      if (this.gasEmitters.has(idx)) {
+        this.gasEmitters.get(idx)!.destroy();
+        this.gasEmitters.delete(idx);
+      }
+    }
+  }
+
+  /** Refresh all physics overlays (fire + fluid + gas) for the entire map. */
   private renderPhysicsOverlays(): void {
     for (let y = 0; y < this.tileMap.height; y++) {
       for (let x = 0; x < this.tileMap.width; x++) {
         this.updateFireOverlay(x, y);
         this.updateFluidOverlay(x, y);
+        this.updateGasOverlay(x, y);
       }
     }
   }
@@ -1206,9 +1343,10 @@ export class GameScene extends Scene {
     // Run AI with movement, combat
     processAITurns(this.world, this.tileMap, this.eventQueue);
 
-    // Run physics systems (fire, fluid)
+    // Run physics systems (fire, fluid, gas)
     processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
     processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
+    processGasSystem(this.tileMap, this.tilePhysics, this.eventQueue);
 
     // Drain visual queue
     if (this.eventQueue.length > 0) {

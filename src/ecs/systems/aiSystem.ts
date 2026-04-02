@@ -78,13 +78,11 @@ function openDoor(
   const openTile = getRegistry().tiles.get(tileData.opensTo);
   if (!openTile) return;
 
-  const doorEvent: VisualEvent = {
+  map.set(x, y, openTile.index);
+  eventQueue.push({
     type: 'door_open',
     entityId: eid,
     data: { x, y },
-  };
-  eventQueue.push(doorEvent, () => {
-    map.set(x, y, openTile.index);
   });
 }
 
@@ -607,15 +605,15 @@ export function performAttack(
   const damage = CombatStats.attackDamage[attacker] || 1;
   const willKill = Health.hp[target] - damage <= 0;
 
+  Health.hp[target] -= damage;
   eventQueue.push(
     { type: 'hit_flash', entityId: target, data: { damage, attackerId: attacker } },
-    () => { Health.hp[target] -= damage; },
   );
 
   if (willKill) {
+    addComponent(world, target, Dead);
     eventQueue.push(
       { type: 'death', entityId: target, data: {} },
-      () => { addComponent(world, target, Dead); },
     );
   }
 }
@@ -636,10 +634,9 @@ function enqueueMove(
     entityId: eid,
     data: { fromX, fromY, toX, toY },
   };
-  eventQueue.push(moveEvent, () => {
-    Position.x[eid] = toX;
-    Position.y[eid] = toY;
-  });
+  Position.x[eid] = toX;
+  Position.y[eid] = toY;
+  eventQueue.push(moveEvent);
 }
 
 // ═══════════════════════════════════════════════════════════
