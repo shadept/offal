@@ -18,6 +18,7 @@ import {
 import { areHostile } from '../factions';
 import { TileMap } from '../../map/TileMap';
 import { getRegistry } from '../../data/loader';
+import { getClosedDoorAt, openDoorEntity } from './movementSystem';
 import { getVisibleTiles } from '../../map/fov';
 import type { VisualEvent } from '../../types';
 import type { VisualEventQueue } from '../../visual/EventQueue';
@@ -58,32 +59,22 @@ export function clearEntityAICache(eid: number): void {
 // Tile helpers
 // ═══════════════════════════════════════════════════════════
 
-/** Check if a tile is a closed door that can be opened. */
-function isClosedDoor(map: TileMap, x: number, y: number): boolean {
-  const tileIndex = map.get(x, y);
-  const tileData = getRegistry().tilesByIndex.get(tileIndex);
-  return !!(tileData?.interactable && tileData.opensTo);
+/** Check if a tile has a closed door entity that can be opened. */
+function isClosedDoor(map: TileMap, x: number, y: number, world: object): boolean {
+  return getClosedDoorAt(x, y, world) >= 0;
 }
 
-/** Open a closed door tile: enqueue visual event + commit map change. */
+/** Open a closed door entity at (x, y). */
 function openDoor(
   eid: number,
   x: number, y: number,
   map: TileMap,
   eventQueue: VisualEventQueue,
+  world: object,
 ): void {
-  const tileIndex = map.get(x, y);
-  const tileData = getRegistry().tilesByIndex.get(tileIndex);
-  if (!tileData?.opensTo) return;
-  const openTile = getRegistry().tiles.get(tileData.opensTo);
-  if (!openTile) return;
-
-  map.set(x, y, openTile.index);
-  eventQueue.push({
-    type: 'door_open',
-    entityId: eid,
-    data: { x, y },
-  });
+  const doorEid = getClosedDoorAt(x, y, world);
+  if (doorEid < 0) return;
+  openDoorEntity(doorEid, eid, map, eventQueue);
 }
 
 /** Cardinal directions */
@@ -321,8 +312,8 @@ function doSeek(
   }
 
   // If next step is a closed door, open it
-  if (isClosedDoor(map, step.x, step.y)) {
-    openDoor(eid, step.x, step.y, map, eventQueue);
+  if (isClosedDoor(map, step.x, step.y, world)) {
+    openDoor(eid, step.x, step.y, map, eventQueue, world);
     clearPath(eid); // path invalidated by door opening
     return;
   }
@@ -393,8 +384,8 @@ function doSearch(
   const step = path[0];
 
   // Door handling
-  if (isClosedDoor(map, step.x, step.y)) {
-    openDoor(eid, step.x, step.y, map, eventQueue);
+  if (isClosedDoor(map, step.x, step.y, world)) {
+    openDoor(eid, step.x, step.y, map, eventQueue, world);
     clearPath(eid);
     AI.searchBudget[eid] = budget - 1;
     return;
@@ -442,8 +433,8 @@ function wander(
     if (!map.inBounds(nx, ny)) continue;
 
     // If closed door, open it and end turn
-    if (isClosedDoor(map, nx, ny)) {
-      openDoor(eid, nx, ny, map, eventQueue);
+    if (isClosedDoor(map, nx, ny, world)) {
+      openDoor(eid, nx, ny, map, eventQueue, world);
       return;
     }
 
@@ -481,7 +472,7 @@ function getOrComputePath(
     // Validate first step is still walkable
     const step = path[0];
     const isTarget = step.x === tx && step.y === ty;
-    const isDoor = isClosedDoor(map, step.x, step.y);
+    const isDoor = isClosedDoor(map, step.x, step.y, world);
     if (isTarget || isDoor || (!map.blocksMovement(step.x, step.y))) {
       return path;
     }
@@ -570,7 +561,7 @@ function aStarPath(
       if (closed.has(nk)) continue;
 
       const isTarget = (nx === tx && ny === ty);
-      const isDoor = isClosedDoor(map, nx, ny);
+      const isDoor = isClosedDoor(map, nx, ny, world);
       if (!isTarget && !isDoor && map.blocksMovement(nx, ny)) continue;
       if (!isTarget && !isDoor && isTileOccupied(nx, ny, eid, world)) continue;
 

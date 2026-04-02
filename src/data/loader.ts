@@ -3,7 +3,7 @@
  * All game content is data-driven; no hardcoded content in game logic.
  */
 import JSON5 from 'json5';
-import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, DataRegistry } from '../types';
+import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, ShipClassData, DataRegistry } from '../types';
 
 // Vite glob imports — `?raw` imports file contents as strings
 const materialFiles = import.meta.glob('/data/materials/*.json5', {
@@ -43,6 +43,12 @@ const physicsRulesFiles = import.meta.glob('/data/physics-rules.json5', {
 });
 
 const roomFiles = import.meta.glob('/data/rooms.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const shipClassFiles = import.meta.glob('/data/ships/*.json5', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -164,6 +170,19 @@ function parseRooms(): Map<string, RoomData> {
   return map;
 }
 
+function parseShipClasses(): Map<string, ShipClassData> {
+  const map = new Map<string, ShipClassData>();
+  for (const [path, raw] of Object.entries(shipClassFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string) as ShipClassData;
+      if (parsed.id) map.set(parsed.id, parsed);
+    } catch (e) {
+      console.error(`Failed to parse ship class file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
 let registry: DataRegistry | null = null;
 
 /** Load all JSON5 data files and return the registry. Cached after first call. */
@@ -183,6 +202,7 @@ export function loadData(): DataRegistry {
     factions: parseFactions(),
     physicsRules: parsePhysicsRules(),
     rooms,
+    shipClasses: parseShipClasses(),
   };
 
   console.log(
@@ -192,7 +212,8 @@ export function loadData(): DataRegistry {
     `${registry.factions.size} factions, ` +
     `${registry.maps.size} maps, ` +
     `${registry.physicsRules.rules.length} physics rules, ` +
-    `${registry.rooms.size} room types`
+    `${registry.rooms.size} room types, ` +
+    `${registry.shipClasses.size} ship classes`
   );
   return registry;
 }

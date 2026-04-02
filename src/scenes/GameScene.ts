@@ -14,15 +14,16 @@
  * - Fire & physics systems (Phase 4)
  */
 import { Scene } from 'phaser';
-import { createGameWorld, spawnPlayer } from '../ecs/world';
+import { createGameWorld, spawnPlayer, spawnDoor } from '../ecs/world';
+import { lastGeneratedGraph } from '../map/shipGen';
 import { addEntity, addComponent, removeEntity, hasComponent, query } from 'bitecs';
 import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
-  Health, Faction, CombatStats, Dead,
+  Health, Faction, CombatStats, Dead, Door,
 } from '../ecs/components';
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
 import { TurnSystem } from '../ecs/systems/turnSystem';
-import { tryMove, getBlockingEntity } from '../ecs/systems/movementSystem';
+import { tryMove, getBlockingEntity, syncDoorOverlays } from '../ecs/systems/movementSystem';
 import { processFireSystem } from '../ecs/systems/fireSystem';
 import { processFluidSystem } from '../ecs/systems/fluidSystem';
 import { processGasSystem } from '../ecs/systems/gasSystem';
@@ -48,8 +49,6 @@ const TILE_TEX: Record<number, string> = {
   [TileType.VOID]: TEX.VOID,
   [TileType.FLOOR]: TEX.FLOOR,
   [TileType.WALL]: TEX.WALL,
-  [TileType.DOOR_CLOSED]: TEX.DOOR_CLOSED,
-  [TileType.DOOR_OPEN]: TEX.DOOR_OPEN,
 };
 
 /** Movement tween duration in ms */
@@ -103,6 +102,9 @@ export class GameScene extends Scene {
   private skipKey!: Phaser.Input.Keyboard.Key;
   private waitKey!: Phaser.Input.Keyboard.Key;
   private inputCooldown = 0;
+  /** True once all keys have been released after the player's last action.
+   *  Prevents held keys from immediately interrupting enemy animations. */
+  private inputReleasedSinceAction = true;
 
   // ── HUD ──
   private hud!: HUD;
@@ -115,6 +117,7 @@ export class GameScene extends Scene {
   private sandboxPanelHandle: Record<string, unknown> | null = null;
   private tabKey!: Phaser.Input.Keyboard.Key;
   private advanceKey!: Phaser.Input.Keyboard.Key;
+  private graphKey!: Phaser.Input.Keyboard.Key;
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
   private autoPlayTimer = 0;
 
@@ -127,6 +130,8 @@ export class GameScene extends Scene {
   // ── Dungeon generation ──
   private currentSeed = '';
   private currentRooms: RoomInfo[] = [];
+  private shipGraphOverlay: Phaser.GameObjects.Graphics | null = null;
+  private shipGraphData: import('../map/shipGen').ShipGraph | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -146,6 +151,7 @@ export class GameScene extends Scene {
     this.tileMap = shipResult.tileMap;
     this.currentSeed = shipResult.seed;
     this.currentRooms = shipResult.rooms;
+    this.shipGraphData = lastGeneratedGraph;
     console.log(`[dungeon] Generated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
 
     // ── Containers (tile layer below overlay layer below entity layer) ──
@@ -170,6 +176,14 @@ export class GameScene extends Scene {
       }
     }
 
+    // ── Spawn door entities and project onto tile overlay ──
+    for (const door of shipResult.doors) {
+      const eid = spawnDoor(this.world, { x: door.x, y: door.y });
+      const idx = this.tileMap.idx(door.x, door.y);
+      this.tileMap.entityBlocksMovement[idx] = 1;
+      this.tileMap.entityBlocksLight[idx] = 1;
+    }
+
     // ── Apply arrival events (pre-existing fire, gas leaks) ──
     this.applyArrivalEvents(shipResult.arrivalEvents);
 
@@ -189,6 +203,11 @@ export class GameScene extends Scene {
 
     // ── Create tile sprites ──
     this.createTileSprites();
+
+    // ── Create door entity sprites ──
+    for (const eid of query(this.world, [Door, Position])) {
+      this.createEntitySprite(eid, undefined, TEX.DOOR_CLOSED);
+    }
 
     // ── Create player sprite ──
     this.createEntitySprite(this.playerEid, 'salvager');
@@ -225,6 +244,7 @@ export class GameScene extends Scene {
     this.waitKey = this.input.keyboard!.addKey('SPACE');
     this.tabKey = this.input.keyboard!.addKey('TAB');
     this.advanceKey = this.input.keyboard!.addKey('N');
+    this.graphKey = this.input.keyboard!.addKey('G');
 
     // ── Ambient: spark emitter on wall edges ──
     this.setupAmbientEffects();
@@ -246,6 +266,11 @@ export class GameScene extends Scene {
     this.selectionHighlight.setDepth(50);
     this.selectionHighlight.setVisible(false);
 
+    // ── Reveal all + graph overlay by default (dev) ──
+    this.sandbox.revealAll = true;
+    this.updateFOV();
+    this.renderTiles();
+    this.toggleShipGraphOverlay();
 
     // Pointer click for sandbox
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -294,6 +319,11 @@ export class GameScene extends Scene {
       this.sandbox.toggle();
     }
 
+    // ── Graph overlay toggle (G key) ──
+    if (Phaser.Input.Keyboard.JustDown(this.graphKey)) {
+      this.toggleShipGraphOverlay();
+    }
+
     // ── Sandbox mode ──
     if (this.sandbox.active) {
       // Don't advance while draining visual events
@@ -333,9 +363,12 @@ export class GameScene extends Scene {
           break;
 
         case TurnPhase.ENEMY_ANIMATION:
-          // Player keypress interrupts enemy animations — lands at
-          // PLAYER_INPUT. Next frame's update() picks up the input.
-          if (this.hasPlayerInput()) {
+          // Track when all keys are released after the player's last action.
+          // Only allow interrupt once keys have been released and pressed again.
+          if (!this.inputReleasedSinceAction && !this.hasPlayerInput()) {
+            this.inputReleasedSinceAction = true;
+          }
+          if (this.inputReleasedSinceAction && this.hasPlayerInput()) {
             this.interruptAnimations();
           }
           break;
@@ -421,10 +454,9 @@ export class GameScene extends Scene {
   // ENTITY SPRITES
   // ════════════════════════════════════════════════════════════
 
-  private createEntitySprite(eid: number, speciesId?: string): Phaser.GameObjects.Image {
+  private createEntitySprite(eid: number, speciesId?: string, textureKey?: string): Phaser.GameObjects.Image {
     if (speciesId) this.entitySpecies.set(eid, speciesId);
-    const sid = this.entitySpecies.get(eid) ?? 'salvager';
-    const tex = speciesTexKey(sid);
+    const tex = textureKey ?? speciesTexKey(this.entitySpecies.get(eid) ?? 'salvager');
     const px = Position.x[eid] * TILE_SIZE;
     const py = Position.y[eid] * TILE_SIZE;
     const sprite = this.add.image(px, py, tex);
@@ -471,6 +503,7 @@ export class GameScene extends Scene {
     if (dx !== 0 || dy !== 0 || this.waitKey.isDown) {
       this.turnSystem.submitAction(dx, dy);
       this.inputCooldown = 150; // ms before next input
+      this.inputReleasedSinceAction = false;
     }
   }
 
@@ -579,10 +612,9 @@ export class GameScene extends Scene {
     // Try to move
     const result = tryMove(this.playerEid, dx, dy, this.tileMap, this.eventQueue, this.world);
 
-    // Deduct energy if action had a cost
-    if (result.cost > 0) {
-      this.turnSystem.deductEnergy(this.playerEid, result.cost);
-    }
+    // Deduct energy — bumping a wall still costs a turn (like waiting)
+    const cost = result.cost > 0 ? result.cost : 100;
+    this.turnSystem.deductEnergy(this.playerEid, cost);
 
     // Advance to animation phase
     this.turnSystem.advance(this.world);
@@ -593,7 +625,6 @@ export class GameScene extends Scene {
         this.onPlayerAnimationDone();
       });
     } else {
-      // No visual events (e.g., bumped wall with no cost)
       this.onPlayerAnimationDone();
     }
   }
@@ -613,7 +644,8 @@ export class GameScene extends Scene {
   private processEnemyTurn(): void {
     processAITurns(this.world, this.tileMap, this.eventQueue);
 
-    // Run physics systems each enemy turn
+    // Sync door overlays then run physics
+    syncDoorOverlays(this.tileMap, this.world);
     processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
     processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
     processGasSystem(this.tileMap, this.tilePhysics, this.eventQueue);
@@ -702,23 +734,24 @@ export class GameScene extends Scene {
 
     // ── Door open event ──
     this.eventQueue.registerHandler('door_open', (event: VisualEvent, onComplete: () => void) => {
-      const { x, y } = event.data as { x: number; y: number };
-      const idx = this.tileMap.idx(x, y);
-      const tileSprite = this.tileSprites[idx];
+      const doorEid = event.entityId;
+      const sprite = this.entitySprites.get(doorEid);
 
-      if (!tileSprite || this.eventQueue.skipMode) {
+      if (!sprite || this.eventQueue.skipMode) {
+        // Still swap texture even if skipping
+        if (sprite) sprite.setTexture(TEX.DOOR_OPEN);
         onComplete();
         return;
       }
 
-      // Flash the door tile then update texture
+      // Flash then swap texture to open
       this.tweens.add({
-        targets: tileSprite,
-        alpha: 1,
+        targets: sprite,
+        alpha: 0.5,
         duration: DOOR_DURATION / 2,
-        yoyo: false,
+        yoyo: true,
         onComplete: () => {
-          // Texture will update on next renderTiles() after commit
+          sprite.setTexture(TEX.DOOR_OPEN);
           onComplete();
         },
       });
@@ -909,6 +942,12 @@ export class GameScene extends Scene {
 
   /** Remove a dead entity from world and visual layer. */
   private removeDeadEntity(eid: number): void {
+    // Clear door overlay if this was a door entity
+    if (hasComponent(this.world, eid, Door)) {
+      const idx = this.tileMap.idx(Position.x[eid], Position.y[eid]);
+      this.tileMap.entityBlocksMovement[idx] = 0;
+      this.tileMap.entityBlocksLight[idx] = 0;
+    }
     this.destroyEntitySprite(eid);
     this.sandbox.pinnedOverlays.delete(eid);
     clearEntityAICache(eid);
@@ -957,16 +996,26 @@ export class GameScene extends Scene {
     this.overlayContainer.removeAll(true);
     this.entityContainer.removeAll(true);
 
-    // Destroy fire/fluid overlays
+    // Destroy fire/fluid/gas overlays
     for (const [, sprite] of this.fireOverlays) sprite.destroy();
     this.fireOverlays.clear();
     for (const [, emitter] of this.fireEmitters) emitter.destroy();
     this.fireEmitters.clear();
     for (const [, sprite] of this.fluidOverlays) sprite.destroy();
     this.fluidOverlays.clear();
+    for (const [, sprite] of this.gasOverlays) sprite.destroy();
+    this.gasOverlays.clear();
+    for (const [, emitter] of this.gasEmitters) emitter.destroy();
+    this.gasEmitters.clear();
 
     // Clear debug overlays
     this.clearDebugOverlays();
+    if (this.shipGraphOverlay) {
+      this.shipGraphOverlay.destroy();
+      this.shipGraphOverlay = null;
+    }
+    for (const t of this.shipGraphLabels) t.destroy();
+    this.shipGraphLabels = [];
     this.sandbox.pinnedOverlays.clear();
 
     // Remove all ECS entities
@@ -981,10 +1030,20 @@ export class GameScene extends Scene {
     this.tileMap = shipResult.tileMap;
     this.currentSeed = shipResult.seed;
     this.currentRooms = shipResult.rooms;
+    this.shipGraphData = lastGeneratedGraph;
     console.log(`[dungeon] Regenerated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
 
     // ── Rebuild physics ──
     this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
+
+    // ── Spawn door entities ──
+    for (const door of shipResult.doors) {
+      const eid = spawnDoor(this.world, { x: door.x, y: door.y });
+      const idx = this.tileMap.idx(door.x, door.y);
+      this.tileMap.entityBlocksMovement[idx] = 1;
+      this.tileMap.entityBlocksLight[idx] = 1;
+    }
+
     this.applyArrivalEvents(shipResult.arrivalEvents);
 
     // ── Spawn player ──
@@ -1003,6 +1062,11 @@ export class GameScene extends Scene {
 
     // ── Rebuild tile sprites ──
     this.createTileSprites();
+
+    // ── Create door sprites ──
+    for (const eid of query(this.world, [Door, Position])) {
+      this.createEntitySprite(eid, undefined, TEX.DOOR_CLOSED);
+    }
 
     // ── Create player sprite ──
     this.createEntitySprite(this.playerEid, 'salvager');
@@ -1343,7 +1407,8 @@ export class GameScene extends Scene {
     // Run AI with movement, combat
     processAITurns(this.world, this.tileMap, this.eventQueue);
 
-    // Run physics systems (fire, fluid, gas)
+    // Sync door overlays then run physics
+    syncDoorOverlays(this.tileMap, this.world);
     processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
     processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
     processGasSystem(this.tileMap, this.tilePhysics, this.eventQueue);
@@ -1483,6 +1548,78 @@ export class GameScene extends Scene {
       gfx.clear();
       gfx.setVisible(false);
     }
+  }
+
+  /** Toggle ship graph debug overlay (nodes with labels, edges as lines) */
+  private shipGraphLabels: Phaser.GameObjects.Text[] = [];
+
+  toggleShipGraphOverlay(): void {
+    if (this.shipGraphOverlay) {
+      this.shipGraphOverlay.destroy();
+      this.shipGraphOverlay = null;
+      for (const t of this.shipGraphLabels) t.destroy();
+      this.shipGraphLabels = [];
+      return;
+    }
+
+    const graph = this.shipGraphData;
+    if (!graph) return;
+
+    const gfx = this.add.graphics();
+    gfx.setDepth(10);
+
+    // Build pixel-position map from graph room nodes + currentRooms
+    // currentRooms[i] corresponds to graph.rooms[i] (same order from generation)
+    const centers = new Map<string, { px: number; py: number }>();
+    for (let i = 0; i < graph.rooms.length; i++) {
+      const room = graph.rooms[i];
+      const info = this.currentRooms[i];
+      if (!info) continue;
+      centers.set(room.id, {
+        px: info.center.x * TILE_SIZE + TILE_SIZE / 2,
+        py: info.center.y * TILE_SIZE + TILE_SIZE / 2,
+      });
+    }
+
+    // Draw edges
+    gfx.lineStyle(2, 0xffff00, 0.6);
+    for (const [aId, bId] of graph.edges) {
+      const a = centers.get(aId);
+      const b = centers.get(bId);
+      if (!a || !b) continue;
+      gfx.beginPath();
+      gfx.moveTo(a.px, a.py);
+      gfx.lineTo(b.px, b.py);
+      gfx.strokePath();
+    }
+
+    // Draw nodes and labels
+    for (const room of graph.rooms) {
+      const c = centers.get(room.id);
+      if (!c) continue;
+
+      // Node circle
+      gfx.fillStyle(0x00ff00, 0.7);
+      gfx.fillCircle(c.px, c.py, 8);
+      gfx.lineStyle(1, 0xffffff, 0.8);
+      gfx.strokeCircle(c.px, c.py, 8);
+
+      // Label: function, size, extremity flag
+      const sizeLabel = `${room.w}x${room.h}`;
+      const extLabel = room.extremity ? ' [ext]' : '';
+      const label = this.add.text(c.px + 12, c.py - 8,
+        `${room.function}\n${sizeLabel}${extLabel}`, {
+          fontFamily: 'monospace',
+          fontSize: '10px',
+          color: '#00ff00',
+          backgroundColor: 'rgba(0,0,0,0.7)',
+          padding: { x: 2, y: 1 },
+        });
+      label.setDepth(11);
+      this.shipGraphLabels.push(label);
+    }
+
+    this.shipGraphOverlay = gfx;
   }
 
   private onTilePainted(data: { x: number; y: number; type: number }): void {

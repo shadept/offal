@@ -4,13 +4,12 @@
  * Produces visual events — does NOT directly update Position.
  * Position updates happen immediately; visual events are purely descriptive.
  *
- * Tile interactions (doors) are data-driven via the tile registry.
+ * Door interactions use entity-based doors with tile overlay projection.
  */
 import { query, hasComponent } from 'bitecs';
-import { Position, BlocksMovement, Dead } from '../components';
+import { Position, BlocksMovement, Dead, Door, Renderable } from '../components';
 import { TileMap } from '../../map/TileMap';
-import { getRegistry } from '../../data/loader';
-import type { VisualEvent } from '../../types';
+import { SpriteIndex } from '../world';
 import type { VisualEventQueue } from '../../visual/EventQueue';
 
 /** Standard movement cost in time-energy units */
@@ -41,6 +40,52 @@ export function getBlockingEntity(x: number, y: number, excludeEid: number, worl
   return -1;
 }
 
+/** Rebuild door overlay from current door entity state. */
+export function syncDoorOverlays(map: TileMap, world: object): void {
+  map.entityBlocksMovement.fill(0);
+  map.entityBlocksLight.fill(0);
+  for (const eid of query(world, [Position, Door])) {
+    if (hasComponent(world, eid, Dead)) continue;
+    if (Door.isOpen[eid] === 1) continue;
+    const idx = map.idx(Position.x[eid], Position.y[eid]);
+    map.entityBlocksMovement[idx] = 1;
+    map.entityBlocksLight[idx] = 1;
+  }
+}
+
+/** Find a closed door entity at (x, y), or -1 if none. */
+export function getClosedDoorAt(x: number, y: number, world: object): number {
+  const doors = query(world, [Position, Door]);
+  for (const eid of doors) {
+    if (hasComponent(world, eid, Dead)) continue;
+    if (Position.x[eid] === x && Position.y[eid] === y && Door.isOpen[eid] === 0) {
+      return eid;
+    }
+  }
+  return -1;
+}
+
+/** Open a door entity: update component, overlay, and enqueue visual event. */
+export function openDoorEntity(
+  doorEid: number,
+  openerEid: number,
+  map: TileMap,
+  eventQueue: VisualEventQueue,
+): void {
+  Door.isOpen[doorEid] = 1;
+  Renderable.spriteIndex[doorEid] = SpriteIndex.DOOR_OPEN;
+  const x = Position.x[doorEid];
+  const y = Position.y[doorEid];
+  const idx = map.idx(x, y);
+  map.entityBlocksMovement[idx] = 0;
+  map.entityBlocksLight[idx] = 0;
+  eventQueue.push({
+    type: 'door_open',
+    entityId: doorEid,
+    data: { x, y },
+  });
+}
+
 /**
  * Try to move entity in direction (dx, dy).
  * Returns the result and enqueues visual events.
@@ -68,25 +113,14 @@ export function tryMove(
     return { moved: false, cost: 0, openedDoor: false };
   }
 
-  const targetIndex = map.get(toX, toY);
-  const tileData = getRegistry().tilesByIndex.get(targetIndex);
-
-  // Check for interactable tile with opensTo (e.g. closed door)
-  if (tileData?.interactable && tileData.opensTo) {
-    const openTile = getRegistry().tiles.get(tileData.opensTo);
-    if (openTile) {
-      map.set(toX, toY, openTile.index);
-      eventQueue.push({
-        type: 'door_open',
-        entityId: eid,
-        data: { x: toX, y: toY },
-      });
+  // Check if tile blocks movement (includes entity overlay — closed doors)
+  if (map.blocksMovement(toX, toY)) {
+    // Check if a closed door entity is causing the block — open it
+    const doorEid = getClosedDoorAt(toX, toY, world);
+    if (doorEid >= 0) {
+      openDoorEntity(doorEid, eid, map, eventQueue);
       return { moved: false, cost: DOOR_COST, openedDoor: true };
     }
-  }
-
-  // Check if tile blocks movement
-  if (map.blocksMovement(toX, toY)) {
     return { moved: false, cost: 0, openedDoor: false };
   }
 

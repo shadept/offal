@@ -1,0 +1,16 @@
+{
+  id: "scout_vessel",
+  name: "Scout Vessel",
+  rooms: [
+    { function: "cockpit", size: "small", extremity: true },
+    { function: "quarters", size: "medium" },
+    { function: "storage", size: "small" },
+    { function: "engine_room", size: "medium", extremity: true },
+  ],
+  connections: [
+    ["cockpit", "quarters"],
+    ["quarters", "storage"],
+    ["quarters", "engine_room"],
+  ],
+  shape: "elongated",
+}

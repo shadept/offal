@@ -6,7 +6,7 @@ import {
   addEntity,
   addComponent,
 } from 'bitecs';
-import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, Health, Faction, CombatStats } from './components';
+import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, Health, Faction, CombatStats, Door } from './components';
 import { getFactionIndex } from './factions';
 
 export type GameWorld = ReturnType<typeof createGameWorld>;
@@ -25,6 +25,36 @@ export const SpriteIndex = {
   DOOR_OPEN: 4,
   NPC: 5,
 } as const;
+
+export interface SpawnDoorOpts {
+  x: number;
+  y: number;
+  hp?: number;
+  isOpen?: boolean;
+}
+
+/** Spawn a door entity. Doors project blocksMovement/blocksLight onto the tile overlay. */
+export function spawnDoor(world: object, opts: SpawnDoorOpts): number {
+  const eid = addEntity(world);
+  addComponent(world, eid, Position);
+  addComponent(world, eid, Renderable);
+  addComponent(world, eid, Health);
+  addComponent(world, eid, Door);
+
+  Position.x[eid] = opts.x;
+  Position.y[eid] = opts.y;
+  Renderable.layer[eid] = 1; // object layer (below entities)
+
+  const open = opts.isOpen ?? false;
+  Door.isOpen[eid] = open ? 1 : 0;
+  Renderable.spriteIndex[eid] = open ? SpriteIndex.DOOR_OPEN : SpriteIndex.DOOR_CLOSED;
+
+  const hp = opts.hp ?? 10;
+  Health.hp[eid] = hp;
+  Health.maxHp[eid] = hp;
+
+  return eid;
+}
 
 export interface SpawnPlayerOpts {
   x: number;

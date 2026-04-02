@@ -9,8 +9,6 @@ export enum TileType {
   VOID = 0,
   FLOOR = 1,
   WALL = 2,
-  DOOR_CLOSED = 3,
-  DOOR_OPEN = 4,
 }
 
 /** Turn state machine states */
@@ -84,9 +82,6 @@ export interface TileData {
   material: string | null;
   blocksMovement: boolean;
   blocksLight: boolean;
-  interactable?: boolean;
-  opensTo?: string;
-  closesTo?: string;
   /** Max hit points (undefined = indestructible) */
   hp?: number;
   /** Tile ID to convert to when destroyed */
@@ -178,6 +173,26 @@ export interface RoomData {
   arrivalEvents: string[];
 }
 
+/** Ship class room definition */
+export interface ShipRoomDef {
+  function: string;
+  /** Room size: "small" | "medium" | "large" */
+  size: string;
+  /** If true, this room must be at an extremity of the ship */
+  extremity?: boolean;
+}
+
+/** Ship class definition loaded from data/ships/*.json5 */
+export interface ShipClassData {
+  id: string;
+  name: string;
+  rooms: ShipRoomDef[];
+  /** Pairs of room function IDs that must be connected */
+  connections: [string, string][];
+  /** Shape constraint for packing: "elongated" | "compact" | "round" */
+  shape: string;
+}
+
 /** Data registry — holds all loaded JSON5 data */
 export interface DataRegistry {
   materials: Map<string, MaterialData>;
@@ -188,4 +203,5 @@ export interface DataRegistry {
   factions: Map<string, FactionData>;
   physicsRules: PhysicsRulesData;
   rooms: Map<string, RoomData>;
+  shipClasses: Map<string, ShipClassData>;
 }

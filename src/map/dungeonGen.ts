@@ -10,6 +10,7 @@
 import { TileMap } from './TileMap';
 import { TileType } from '../types';
 import { getRegistry } from '../data/loader';
+import { generateShipFromClass } from './shipGen';
 import { SeededRNG } from '../utils/rng';
 import type { RoomData } from '../types';
 
@@ -45,6 +46,7 @@ export interface GeneratedShip {
   rooms: RoomInfo[];
   playerSpawn: { x: number; y: number };
   spawns: { species: string; x: number; y: number }[];
+  doors: { x: number; y: number }[];
   seed: string;
 }
 
@@ -270,15 +272,50 @@ function carveCorridor(tileMap: TileMap, corridor: Corridor): void {
   }
 }
 
-/** Place doors where corridors meet room walls. */
-function placeDoors(tileMap: TileMap, corridors: Corridor[], rng: SeededRNG): void {
+/** Fill void gaps inside the ship with wall. Computes the bounding box
+ *  of all non-void tiles (the ship footprint) and converts any void
+ *  within that box to wall. Everything outside the box stays void. */
+function fillInteriorVoid(tileMap: TileMap): void {
+  const { width, height } = tileMap;
+
+  // Find bounding box of all non-void tiles
+  let minX = width, maxX = 0, minY = height, maxY = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (tileMap.tiles[y * width + x] !== TileType.VOID) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  // Fill void inside the bounding box with wall
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const idx = y * width + x;
+      if (tileMap.tiles[idx] === TileType.VOID) {
+        tileMap.tiles[idx] = TileType.WALL;
+      }
+    }
+  }
+}
+
+/** Find door positions at corridor-room boundaries. Only considers the
+ *  first and last doorway-shaped tiles in each corridor (the transition
+ *  points where the corridor meets a room), not every mid-corridor tile. */
+function findDoorPositions(tileMap: TileMap, corridors: Corridor[], rng: SeededRNG): { x: number; y: number }[] {
+  const placed = new Set<number>(); // avoid double-placing at same tile
+  const doors: { x: number; y: number }[] = [];
+
   for (const corridor of corridors) {
+    // Find all doorway candidates in this corridor
+    const candidates: { x: number; y: number }[] = [];
     for (const { x, y } of corridor.points) {
       if (!tileMap.inBounds(x, y)) continue;
       if (tileMap.get(x, y) !== TileType.FLOOR) continue;
 
-      // Check if this floor tile is a doorway candidate:
-      // walls on two opposite sides, floor on two opposite sides
       const n = tileMap.get(x, y - 1);
       const s = tileMap.get(x, y + 1);
       const e = tileMap.get(x + 1, y);
@@ -289,11 +326,24 @@ function placeDoors(tileMap: TileMap, corridors: Corridor[], rng: SeededRNG): vo
       const isHorzDoor = (e === TileType.WALL && w === TileType.WALL &&
                           n === TileType.FLOOR && s === TileType.FLOOR);
 
-      if ((isVertDoor || isHorzDoor) && rng.chance(0.7)) {
-        tileMap.set(x, y, TileType.DOOR_CLOSED);
+      if (isVertDoor || isHorzDoor) {
+        candidates.push({ x, y });
+      }
+    }
+
+    // Only place doors at the ends (room-corridor boundary), not mid-corridor
+    const ends = [candidates[0], candidates[candidates.length - 1]];
+    for (const pt of ends) {
+      if (!pt) continue;
+      const key = pt.y * tileMap.width + pt.x;
+      if (placed.has(key)) continue;
+      if (rng.chance(0.7)) {
+        doors.push(pt);
+        placed.add(key);
       }
     }
   }
+  return doors;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -477,78 +527,50 @@ function generateArrivalEvents(rooms: RoomInfo[], tileMap: TileMap, rng: SeededR
 // MAIN GENERATOR
 // ═══════════════════════════════════════════════════════════
 
-export function generateShip(seed?: string, config?: DungeonGenConfig): GeneratedShip & { arrivalEvents: ArrivalEvent[] } {
+export function generateShip(seed?: string, _config?: DungeonGenConfig): GeneratedShip & { arrivalEvents: ArrivalEvent[] } {
+  const registry = getRegistry();
+  const shipClass = registry.shipClasses.get('scout_vessel');
+
+  if (!shipClass) {
+    throw new Error('No ship class "scout_vessel" found — check data/ships/');
+  }
+
+  const result = generateShipFromClass(shipClass, seed);
+
+  // Convert to legacy format for compatibility
+  const rooms: RoomInfo[] = result.roomCenters.map((rc: { id: string; function: string; x: number; y: number }) => ({
+    rect: { x: 0, y: 0, w: 0, h: 0 } as Rect,
+    function: registry.rooms.get(rc.function) ?? null,
+    center: { x: rc.x, y: rc.y },
+  }));
+
+  // Simple entity spawning: 1-2 creatures in non-cockpit rooms
   const rng = new SeededRNG(seed);
-  const cfg = { ...DEFAULTS, ...config };
-
-  // Create tile map filled with void
-  const tileMap = new TileMap(cfg.width, cfg.height);
-  // Already all zeros (VOID)
-
-  // BSP area (excluding border)
-  const bspBounds: Rect = {
-    x: cfg.border,
-    y: cfg.border,
-    w: cfg.width - cfg.border * 2,
-    h: cfg.height - cfg.border * 2,
-  };
-
-  // Build BSP tree
-  const root = splitBSP(bspBounds, rng, cfg.minLeafSize);
-
-  // Place rooms in leaf nodes
-  placeRooms(root, rng, cfg.minRoomSize, cfg.maxRoomSize);
-
-  // Collect all rooms
-  const roomRects = collectRooms(root);
-  if (roomRects.length === 0) {
-    // Fallback: place a single room in the center
-    const fallback: Rect = {
-      x: Math.floor(cfg.width / 4),
-      y: Math.floor(cfg.height / 4),
-      w: Math.floor(cfg.width / 2),
-      h: Math.floor(cfg.height / 2),
-    };
-    roomRects.push(fallback);
+  const spawns: { species: string; x: number; y: number }[] = [];
+  const speciesList = Array.from(registry.species.values()).filter(s => s.faction !== 'player');
+  for (const rc of result.roomCenters) {
+    if (rc.function === 'cockpit') continue;
+    if (speciesList.length === 0) continue;
+    const count = Math.floor(rng.next() * 3);
+    for (let i = 0; i < count; i++) {
+      const sp = speciesList[Math.floor(rng.next() * speciesList.length)];
+      const ox = Math.floor(rng.next() * 3) - 1;
+      const oy = Math.floor(rng.next() * 3) - 1;
+      const sx = rc.x + ox;
+      const sy = rc.y + oy;
+      if (result.tileMap.inBounds(sx, sy) && result.tileMap.get(sx, sy) === TileType.FLOOR) {
+        spawns.push({ species: sp.id, x: sx, y: sy });
+      }
+    }
   }
-
-  // Connect sibling rooms with corridors
-  const corridors = connectSiblings(root, rng);
-
-  // Carve rooms into tile map
-  for (const room of roomRects) {
-    carveRoom(tileMap, room);
-  }
-
-  // Carve corridors
-  for (const corridor of corridors) {
-    carveCorridor(tileMap, corridor);
-  }
-
-  // Place doors at corridor-room boundaries
-  placeDoors(tileMap, corridors, rng);
-
-  // Assign room functions
-  const rooms = assignRoomFunctions(roomRects, rng);
-
-  // Place infrastructure
-  placeInfrastructure(rooms, tileMap, rng);
-
-  // Choose player spawn: center of first room
-  const playerSpawn = { ...rooms[0].center };
-
-  // Populate rooms with entities
-  const spawns = populateRooms(rooms, tileMap, rng, playerSpawn);
-
-  // Generate arrival events
-  const arrivalEvents = generateArrivalEvents(rooms, tileMap, rng);
 
   return {
-    tileMap,
+    tileMap: result.tileMap,
     rooms,
-    playerSpawn,
+    playerSpawn: result.playerSpawn,
     spawns,
-    seed: rng.seed,
-    arrivalEvents,
+    doors: result.doors,
+    seed: seed ?? 'generated',
+    arrivalEvents: [],
   };
 }

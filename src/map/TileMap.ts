@@ -23,6 +23,11 @@ export class TileMap {
   /** Light level per cell (0–255), computed by FOV */
   readonly light: Uint8Array;
 
+  /** Entity-projected overlays — entities (doors, barricades, etc.) set these
+   *  to block movement/light independently of the base tile. */
+  readonly entityBlocksMovement: Uint8Array;
+  readonly entityBlocksLight: Uint8Array;
+
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
@@ -30,6 +35,8 @@ export class TileMap {
     this.tiles = new Uint8Array(size);
     this.visibility = new Uint8Array(size);
     this.light = new Uint8Array(size);
+    this.entityBlocksMovement = new Uint8Array(size);
+    this.entityBlocksLight = new Uint8Array(size);
   }
 
   /** Convert (x, y) to flat index */
@@ -54,15 +61,21 @@ export class TileMap {
     this.tiles[this.idx(x, y)] = type;
   }
 
-  /** Check if a tile blocks movement (from tile data registry) */
+  /** Check if a tile blocks movement (tile data OR entity overlay) */
   blocksMovement(x: number, y: number): boolean {
-    const tileData = getRegistry().tilesByIndex.get(this.get(x, y));
-    return tileData?.blocksMovement ?? true; // unknown tiles block by default
+    if (!this.inBounds(x, y)) return true;
+    const idx = this.idx(x, y);
+    if (this.entityBlocksMovement[idx]) return true;
+    const tileData = getRegistry().tilesByIndex.get(this.tiles[idx]);
+    return tileData?.blocksMovement ?? true;
   }
 
-  /** Check if a tile blocks line of sight (from tile data registry) */
+  /** Check if a tile blocks line of sight (tile data OR entity overlay) */
   blocksLight(x: number, y: number): boolean {
-    const tileData = getRegistry().tilesByIndex.get(this.get(x, y));
+    if (!this.inBounds(x, y)) return true;
+    const idx = this.idx(x, y);
+    if (this.entityBlocksLight[idx]) return true;
+    const tileData = getRegistry().tilesByIndex.get(this.tiles[idx]);
     return tileData?.blocksLight ?? true;
   }
 

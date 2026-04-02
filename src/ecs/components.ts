@@ -69,6 +69,12 @@ export const CombatStats = soa({
   attackDamage: new Int32Array(MAX_ENTITIES),
 });
 
+// ── Door ──────────────────────────────────────────────────────
+// isOpen: 0 = closed, 1 = open
+export const Door = soa({
+  isOpen: new Uint8Array(MAX_ENTITIES),
+});
+
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};

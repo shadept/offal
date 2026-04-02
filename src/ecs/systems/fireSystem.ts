@@ -9,7 +9,7 @@
  * Never renders directly.
  */
 import { query, hasComponent, addComponent } from 'bitecs';
-import { Position, Health, Dead } from '../components';
+import { Position, Health, Dead, Door } from '../components';
 import { getRegistry } from '../../data/loader';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
@@ -109,30 +109,8 @@ export function processFireSystem(
     // Damage entities on this tile
     damageEntitiesOnTile(x, y, damagePerTurn, world, eventQueue);
 
-    // Damage destructible tiles (e.g. wooden doors burn down)
-    const tileIdx = tileMap.idx(x, y);
-    if (physics.tileHp[tileIdx] > 0) {
-      physics.tileHp[tileIdx] -= damagePerTurn;
-      if (physics.tileHp[tileIdx] <= 0) {
-        physics.tileHp[tileIdx] = -1;
-        const tileData = registry.tilesByIndex.get(tileMap.get(x, y));
-        const destroyedTile = tileData?.destroyedTo
-          ? registry.tiles.get(tileData.destroyedTo)
-          : null;
-        if (destroyedTile) {
-          tileMap.set(x, y, destroyedTile.index);
-          // Fire goes out — nothing left to burn
-          state.surfaceStates.delete('on_fire');
-          state.temperature = Math.max(0, state.temperature - 100);
-          eventQueue.push({
-            type: 'tile_destroyed',
-            entityId: -1,
-            data: { x, y, newTileIndex: destroyedTile.index },
-          });
-          continue; // Skip spread — tile is gone
-        }
-      }
-    }
+    // Damage door entities on this tile (doors burn down)
+    damageDoorOnTile(x, y, damagePerTurn, tileMap, world, eventQueue);
 
     // Decrement fire delay
     if (state.fireDelay > 0) {
@@ -226,6 +204,41 @@ function damageEntitiesOnTile(
 
     if (Health.hp[eid] <= 0) {
       addComponent(world, eid, Dead);
+      eventQueue.push({
+        type: 'death',
+        entityId: eid,
+        data: { cause: 'fire' },
+      });
+    }
+  }
+}
+
+/** Damage door entities on a burning tile. When a door burns down, clear its overlay. */
+function damageDoorOnTile(
+  x: number, y: number,
+  damage: number,
+  tileMap: TileMap,
+  world: object,
+  eventQueue: VisualEventQueue,
+): void {
+  const doors = query(world, [Position, Door, Health]);
+  for (const eid of doors) {
+    if (hasComponent(world, eid, Dead)) continue;
+    if (Position.x[eid] !== x || Position.y[eid] !== y) continue;
+
+    Health.hp[eid] -= damage;
+    eventQueue.push({
+      type: 'hit_flash',
+      entityId: eid,
+      data: { damage, source: 'fire' },
+    });
+
+    if (Health.hp[eid] <= 0) {
+      addComponent(world, eid, Dead);
+      // Clear overlay — the door is gone, tile becomes passable
+      const idx = tileMap.idx(x, y);
+      tileMap.entityBlocksMovement[idx] = 0;
+      tileMap.entityBlocksLight[idx] = 0;
       eventQueue.push({
         type: 'death',
         entityId: eid,
