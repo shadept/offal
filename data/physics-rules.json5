@@ -43,4 +43,16 @@
     intensifiers: ["oil"],
     intensifierThresholdMultiplier: 0.3,
   },
+
+  // Gas interaction rules
+  gasRules: {
+    // Toxic gas: damages organic entities standing in it
+    toxicDamagePerTurn: 2,
+    toxicThreshold: 0.2,  // minimum concentration to deal damage
+
+    // Flammable gas: explodes when fire is present
+    flammableExplosionThreshold: 0.3,  // minimum concentration to explode
+    explosionDamage: 15,
+    explosionRadius: 2,  // tiles from center
+  },
 }

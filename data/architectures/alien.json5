@@ -9,4 +9,12 @@
   },
   weaponExterior: "energy_emitter",
   weaponInterior: "energy_emitter",
+  colors: {
+    wallColor: "#0a2030",
+    floorColor: "#040e18",
+  },
+  hull: {
+    shape: "capsule",
+    pad: 3,
+  },
 }

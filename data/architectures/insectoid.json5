@@ -10,4 +10,12 @@
   },
   weaponExterior: "bio_artillery",
   weaponInterior: "bio_artillery",
+  colors: {
+    wallColor: "#2e2118",
+    floorColor: "#1a140e",
+  },
+  hull: {
+    shape: "ellipse",
+    pad: 2,
+  },
 }

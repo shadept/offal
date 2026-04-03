@@ -622,12 +622,10 @@ function placeEngines(
   arch: ArchitectureData, rng: SeededRNG,
 ): void {
   const layout = arch.layout;
-  const exteriorTypes = ['engine', 'weapons', 'turret', 'missile_bay',
-    'torpedo_tube', 'energy_emitter', 'bio_artillery'];
 
   // Sort nodes by southernmost edge (highest y + h), exclude engines/weapons
   const southern = [...nodes]
-    .filter(n => !exteriorTypes.includes(n.type))
+    .filter(n => !EXTERIOR_ROOM_TYPES.has(n.type))
     .sort((a, b) => (b.y + b.h) - (a.y + a.h));
 
   if (southern.length === 0) return;
@@ -693,15 +691,12 @@ function addCrossConnections(
 ): void {
   if (crossProb <= 0) return;
 
-  const exteriorTypes = ['engine', 'turret', 'missile_bay',
-    'torpedo_tube', 'energy_emitter', 'bio_artillery'];
-
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const n1 = nodes[i];
       const n2 = nodes[j];
 
-      if (exteriorTypes.includes(n1.type) || exteriorTypes.includes(n2.type)) continue;
+      if (EXTERIOR_ROOM_TYPES.has(n1.type) || EXTERIOR_ROOM_TYPES.has(n2.type)) continue;
 
       // Check if edge already exists
       const exists = edges.some(e =>
@@ -853,27 +848,97 @@ function carveCorridor(
   return points;
 }
 
-/** Fill void gaps inside the ship footprint with wall (hull generation). */
-function fillInteriorVoid(tileMap: TileMap): void {
-  const { width, height } = tileMap;
+/** Room types excluded from hull wrapping (engines, weapons face exterior). */
+const EXTERIOR_ROOM_TYPES = new Set([
+  'engine', 'weapons', 'turret', 'missile_bay',
+  'torpedo_tube', 'energy_emitter', 'bio_artillery',
+]);
 
-  let minX = width, maxX = 0, minY = height, maxY = 0;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (tileMap.tiles[y * width + x] !== TileType.VOID) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+/** Test if a point is inside a hull shape (normalized coordinates). */
+function isInsideHullShape(
+  shape: string, dx: number, dy: number, hw: number, hh: number,
+): boolean {
+  const nx = dx / hw;
+  const ny = dy / hh;
+  switch (shape) {
+    case 'capsule':
+    case 'ellipse':
+      return nx * nx + ny * ny <= 1;
+    case 'diamond':
+      return Math.abs(nx) + Math.abs(ny) <= 1;
+    case 'standard':
+    case 'grid':
+    default:
+      return true; // rectangular, all tiles within bounds are inside
+  }
+}
+
+/**
+ * Fill hull around each room using the architecture's hull shape and padding.
+ * Each non-exterior room gets a shaped hull bubble. The bubbles overlap to
+ * form the ship's continuous hull contour.
+ */
+function fillPerRoomHulls(
+  nodes: RoomNode[], offsetX: number, offsetY: number,
+  tileMap: TileMap, arch: ArchitectureData,
+): void {
+  const hullCfg = arch.hull ?? { shape: 'standard' as const, pad: 2 };
+  const pad = hullCfg.pad;
+  const shape = hullCfg.shape;
+
+  for (const node of nodes) {
+    if (EXTERIOR_ROOM_TYPES.has(node.type)) continue;
+
+    // Room center in tile-space (interior center + offset)
+    const cx = node.x + offsetX + node.w / 2;
+    const cy = node.y + offsetY + node.h / 2;
+    // Half-extents: interior half + 1 (wall border) + hull padding
+    const hw = node.w / 2 + 1 + pad;
+    const hh = node.h / 2 + 1 + pad;
+
+    const minTX = Math.floor(cx - hw);
+    const maxTX = Math.ceil(cx + hw);
+    const minTY = Math.floor(cy - hh);
+    const maxTY = Math.ceil(cy + hh);
+
+    for (let y = minTY; y <= maxTY; y++) {
+      for (let x = minTX; x <= maxTX; x++) {
+        if (!tileMap.inBounds(x, y)) continue;
+        if (tileMap.get(x, y) !== TileType.VOID) continue;
+
+        const dx = x - cx;
+        const dy = y - cy;
+
+        if (isInsideHullShape(shape, dx, dy, hw, hh)) {
+          tileMap.set(x, y, TileType.WALL);
+        }
       }
     }
   }
+}
 
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      const idx = y * width + x;
-      if (tileMap.tiles[idx] === TileType.VOID) {
-        tileMap.tiles[idx] = TileType.WALL;
+/**
+ * Smoothing pass: fill VOID tiles that have 2+ cardinal WALL neighbors.
+ * Closes narrow gaps between hull bubbles along corridors.
+ */
+function smoothHullGaps(tileMap: TileMap, passes: number): void {
+  const { width, height } = tileMap;
+  for (let pass = 0; pass < passes; pass++) {
+    const snapshot = new Uint8Array(tileMap.tiles);
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const idx = y * width + x;
+        if (snapshot[idx] !== TileType.VOID) continue;
+
+        let wallNeighbors = 0;
+        if (snapshot[(y - 1) * width + x] === TileType.WALL) wallNeighbors++;
+        if (snapshot[(y + 1) * width + x] === TileType.WALL) wallNeighbors++;
+        if (snapshot[y * width + (x - 1)] === TileType.WALL) wallNeighbors++;
+        if (snapshot[y * width + (x + 1)] === TileType.WALL) wallNeighbors++;
+
+        if (wallNeighbors >= 2) {
+          tileMap.set(x, y, TileType.WALL);
+        }
       }
     }
   }
@@ -907,6 +972,7 @@ function pickTeleporterTile(
 function carveShipToTileMap(
   graph: ShipGraph, tileMap: TileMap,
   offsetX: number, offsetY: number, rng: SeededRNG,
+  arch: ArchitectureData,
 ): { doors: { x: number; y: number }[]; teleporters: TeleporterPair[] } {
   const nodeMap = new Map(graph.nodes.map(n => [n.id, n]));
   const doors: { x: number; y: number }[] = [];
@@ -970,10 +1036,13 @@ function carveShipToTileMap(
     }
   }
 
-  // Hull fill — seal void gaps inside the ship (skip for floating ships
-  // where rooms are intentionally disconnected)
-  if (graph.architecture !== 'monolithic') {
-    fillInteriorVoid(tileMap);
+  // Per-room hull generation — shaped hull bubbles around each room
+  fillPerRoomHulls(graph.nodes, offsetX, offsetY, tileMap, arch);
+
+  // Smoothing: close narrow gaps between hull bubbles along corridors
+  // Skip for floating architectures (modules are intentionally disconnected)
+  if (arch.layout.type !== 'FLOATING') {
+    smoothHullGaps(tileMap, 2);
   }
 
   return { doors, teleporters };
@@ -1016,7 +1085,9 @@ export function generateShipFromConfig(
     maxY = Math.max(maxY, node.y + node.h);
   }
 
-  const border = 3;
+  // Border must accommodate hull padding + extra breathing room
+  const hullPad = arch.hull?.pad ?? 2;
+  const border = Math.ceil(hullPad) + 3;
   const mapW = (maxX - minX + 1) + border * 2;
   const mapH = (maxY - minY + 1) + border * 2;
   const offsetX = border - minX;
@@ -1024,7 +1095,7 @@ export function generateShipFromConfig(
 
   // Carve to tilemap
   const tileMap = new TileMap(mapW, mapH);
-  const { doors, teleporters } = carveShipToTileMap(graph, tileMap, offsetX, offsetY, rng);
+  const { doors, teleporters } = carveShipToTileMap(graph, tileMap, offsetX, offsetY, rng, arch);
 
   // Room centers (tilemap coords)
   const roomCenters = graph.nodes.map(n => ({

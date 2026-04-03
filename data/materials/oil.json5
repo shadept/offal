@@ -9,5 +9,6 @@
   // Fluid-specific properties
   viscosity: 0.6,
   evaporationRate: 0.005,
+  contaminationDuration: 5,  // oil is sticky, lingers
   tags: ["fluid", "intensifies_fire"],
 }

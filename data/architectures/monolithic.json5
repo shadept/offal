@@ -11,4 +11,12 @@
   },
   weaponExterior: "energy_emitter",
   weaponInterior: "torpedo_tube",
+  colors: {
+    wallColor: "#1e1b4b",
+    floorColor: "#0f0e28",
+  },
+  hull: {
+    shape: "diamond",
+    pad: 1,
+  },
 }

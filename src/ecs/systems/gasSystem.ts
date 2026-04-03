@@ -1,12 +1,18 @@
 /**
- * Gas System — processes gas diffusion and dissipation each turn.
+ * Gas System — processes gas diffusion, dissipation, and gas-entity
+ * interactions each turn.
  *
  * Gases diffuse in all 8 directions (including diagonals), spread quickly,
  * and dissipate over time. Unlike liquids which pool in place, gases
  * actively move and thin out — think smoke drifting vs water pooling.
  *
+ * Toxic gases damage organic entities. Handled here rather than in the
+ * fire system because toxicity is a gas property, not a fire property.
+ *
  * Architecture: logic only. Pushes visual events to the queue.
  */
+import { query, hasComponent, addComponent } from 'bitecs';
+import { Position, Health, Dead } from '../components';
 import { getRegistry } from '../../data/loader';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
@@ -37,11 +43,14 @@ const DEFAULT_DISSIPATION_RATE = 0.03;
  * Run gas system for one turn.
  * - Gases diffuse toward neighbors with lower concentration (8-dir).
  * - Gases dissipate (fade) over time.
+ * - Toxic gases damage organic entities standing in them.
  * - When a tile gains new gas, push a gas_spread visual event.
  */
 export function processGasSystem(
   tileMap: TileMap,
   physics: TilePhysicsMap,
+  world: object,
+  entitySpeciesMap: Map<number, string>,
   eventQueue: VisualEventQueue,
 ): void {
   const registry = getRegistry();
@@ -130,6 +139,48 @@ export function processGasSystem(
       }
       for (const id of toDelete) {
         state.gases.delete(id);
+      }
+    }
+  }
+
+  // Toxic gas damage to organic entities
+  const { gasRules } = registry.physicsRules;
+  if (gasRules) {
+    const livingEntities = query(world, [Position, Health]);
+    for (const eid of livingEntities) {
+      if (hasComponent(world, eid, Dead)) continue;
+      const ex = Position.x[eid];
+      const ey = Position.y[eid];
+      const state = physics.get(ex, ey);
+      if (!state) continue;
+
+      // Check each gas on this tile for toxic tag
+      for (const [gasId, conc] of state.gases) {
+        if (conc < gasRules.toxicThreshold) continue;
+        const material = registry.materials.get(gasId);
+        if (!material?.tags?.includes('toxic')) continue;
+
+        // Only damage organic entities
+        const speciesId = entitySpeciesMap.get(eid);
+        const species = speciesId ? registry.species.get(speciesId) : null;
+        if (!species?.spawnTags?.includes('organic')) continue;
+
+        Health.hp[eid] -= gasRules.toxicDamagePerTurn;
+        eventQueue.push({
+          type: 'hit_flash',
+          entityId: eid,
+          data: { damage: gasRules.toxicDamagePerTurn, source: 'toxic_gas' },
+        });
+
+        if (Health.hp[eid] <= 0) {
+          addComponent(world, eid, Dead);
+          eventQueue.push({
+            type: 'death',
+            entityId: eid,
+            data: { cause: 'toxic_gas' },
+          });
+        }
+        break; // one toxic gas hit per entity per turn
       }
     }
   }

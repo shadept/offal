@@ -58,6 +58,10 @@ export function processFireSystem(
     }
   }
 
+  // Gas explosion tracking — collect explosions first, process after
+  const { gasRules } = registry.physicsRules;
+  const explosions: { x: number; y: number }[] = [];
+
   // Process each burning tile
   const newFires: { x: number; y: number }[] = [];
 
@@ -104,6 +108,17 @@ export function processFireSystem(
     const smokeConc = state.gases.get('smoke') ?? 0;
     if (smokeConc < 0.8) {
       state.gases.set('smoke', Math.min(1, smokeConc + 0.15));
+    }
+
+    // Check for flammable gas — fire + flammable gas = explosion
+    if (gasRules) {
+      for (const [gasId, conc] of state.gases) {
+        if (conc < gasRules.flammableExplosionThreshold) continue;
+        const gasMat = registry.materials.get(gasId);
+        if (!gasMat?.tags?.includes('flammable')) continue;
+        explosions.push({ x, y });
+        break;
+      }
     }
 
     // Damage entities on this tile
@@ -179,6 +194,76 @@ export function processFireSystem(
       entityId: -1,
       data: { x, y },
     });
+  }
+
+  // Process gas explosions
+  if (gasRules) {
+    const exploded = new Set<string>();
+    for (const { x, y } of explosions) {
+      const key = `${x},${y}`;
+      if (exploded.has(key)) continue;
+      exploded.add(key);
+
+      const radius = gasRules.explosionRadius;
+      const damage = gasRules.explosionDamage;
+
+      // Clear flammable gas and damage entities in radius
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (!physics.inBounds(nx, ny)) continue;
+          // Manhattan distance check for diamond-shaped blast
+          if (Math.abs(dx) + Math.abs(dy) > radius) continue;
+
+          const nState = physics.get(nx, ny)!;
+
+          // Consume flammable gas
+          const toDelete: string[] = [];
+          for (const [gasId, conc] of nState.gases) {
+            const gasMat = registry.materials.get(gasId);
+            if (gasMat?.tags?.includes('flammable')) {
+              toDelete.push(gasId);
+            }
+          }
+          for (const id of toDelete) nState.gases.delete(id);
+
+          // Ignite tiles in radius
+          if (!nState.surfaceStates.has('on_fire')) {
+            const tileData = registry.tilesByIndex.get(tileMap.get(nx, ny));
+            const matId = tileData?.material ?? null;
+            const mat = matId ? registry.materials.get(matId) : null;
+            if ((mat?.flammability ?? 0) > 0.1) {
+              nState.surfaceStates.add('on_fire');
+              nState.fireDelay = 0;
+              nState.temperature = Math.min(500, nState.temperature + 200);
+              eventQueue.push({
+                type: 'fire_spread',
+                entityId: -1,
+                data: { x: nx, y: ny },
+              });
+            }
+          }
+
+          // Damage entities in blast
+          damageEntitiesOnTile(nx, ny, damage, world, eventQueue);
+          damageDoorOnTile(nx, ny, damage, tileMap, world, eventQueue);
+        }
+      }
+
+      // Add smoke where the explosion was
+      const centerState = physics.get(x, y);
+      if (centerState) {
+        centerState.gases.set('smoke', Math.min(1, (centerState.gases.get('smoke') ?? 0) + 0.6));
+      }
+
+      // Push explosion visual event
+      eventQueue.push({
+        type: 'explosion',
+        entityId: -1,
+        data: { x, y, radius },
+      });
+    }
   }
 }
 

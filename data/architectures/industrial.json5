@@ -13,4 +13,12 @@
   },
   weaponExterior: "turret",
   weaponInterior: "missile_bay",
+  colors: {
+    wallColor: "#44403c",
+    floorColor: "#2a2826",
+  },
+  hull: {
+    shape: "grid",
+    pad: 2,
+  },
 }

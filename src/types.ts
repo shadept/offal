@@ -21,7 +21,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed';
+export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed' | 'explosion';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {
@@ -71,6 +71,8 @@ export interface MaterialData {
   // Gas-specific (optional)
   diffusionRate?: number;
   dissipationRate?: number;
+  /** How many turns contamination lasts on an entity after contact */
+  contaminationDuration?: number;
   tags?: string[];
 }
 
@@ -147,10 +149,20 @@ export interface FluidFireInteractions {
   intensifierThresholdMultiplier: number;
 }
 
+/** Gas interaction rules */
+export interface GasRulesData {
+  toxicDamagePerTurn: number;
+  toxicThreshold: number;
+  flammableExplosionThreshold: number;
+  explosionDamage: number;
+  explosionRadius: number;
+}
+
 /** Full physics rules data */
 export interface PhysicsRulesData {
   rules: PhysicsRuleData[];
   fluidFireInteractions: FluidFireInteractions;
+  gasRules: GasRulesData;
 }
 
 /** Room population entry */
@@ -206,6 +218,18 @@ export interface ArchitectureLayout {
   engineFloatDist?: [number, number];
 }
 
+/** Architecture visual colors */
+export interface ArchitectureColors {
+  wallColor: string;
+  floorColor: string;
+}
+
+/** Architecture hull shape config */
+export interface ArchitectureHull {
+  shape: 'standard' | 'capsule' | 'ellipse' | 'diamond' | 'grid';
+  pad: number;
+}
+
 /** Architecture definition loaded from data/architectures.json5 */
 export interface ArchitectureData {
   id: string;
@@ -213,6 +237,8 @@ export interface ArchitectureData {
   layout: ArchitectureLayout;
   weaponExterior: string;
   weaponInterior: string;
+  colors?: ArchitectureColors;
+  hull?: ArchitectureHull;
 }
 
 /** Ship type definition loaded from data/ship-types.json5 */

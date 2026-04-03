@@ -28,6 +28,7 @@ import { processFireSystem } from '../ecs/systems/fireSystem';
 import { processFluidSystem } from '../ecs/systems/fluidSystem';
 import { processGasSystem } from '../ecs/systems/gasSystem';
 import { TilePhysicsMap } from '../ecs/systems/tilePhysics';
+import { EntityPhysicsMap } from '../ecs/systems/entityPhysics';
 import { VisualEventQueue } from '../visual/EventQueue';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
 import { loadMap } from '../map/mapLoader';
@@ -36,20 +37,13 @@ import type { ArrivalEvent, RoomInfo } from '../map/dungeonGen';
 import { computeFOV } from '../map/fov';
 import { TurnPhase, TileType, Visibility } from '../types';
 import type { VisualEvent } from '../types';
-import { TEX, speciesTexKey } from './BootScene';
+import { TEX, speciesTexKey, archFloorTex, archWallTex } from './BootScene';
 import { HUD } from '../ui/HUD';
 import { SandboxController } from '../sandbox/SandboxController';
 import { mount, unmount } from 'svelte';
 import SandboxPanel from '../ui/SandboxPanel.svelte';
 import { processAITurns, performAttack, clearEntityAICache } from '../ecs/systems/aiSystem';
 import { getRegistry } from '../data/loader';
-
-/** Texture key for each tile index (matches data/tiles.json5) */
-const TILE_TEX: Record<number, string> = {
-  [TileType.VOID]: TEX.VOID,
-  [TileType.FLOOR]: TEX.FLOOR,
-  [TileType.WALL]: TEX.WALL,
-};
 
 /** Movement tween duration in ms */
 const MOVE_DURATION = 120;
@@ -72,6 +66,7 @@ export class GameScene extends Scene {
   // ── Map ──
   private tileMap!: TileMap;
   private tilePhysics!: TilePhysicsMap;
+  private entityPhysics = new EntityPhysicsMap();
 
   // ── Visual ──
   private eventQueue!: VisualEventQueue;
@@ -92,6 +87,9 @@ export class GameScene extends Scene {
   private gasOverlays = new Map<number, Phaser.GameObjects.Image>();
   /** Gas particle emitters indexed by tile flat index */
   private gasEmitters = new Map<number, Phaser.GameObjects.Particles.ParticleEmitter>();
+
+  // ── Background ──
+  private nebulaBg!: Phaser.GameObjects.TileSprite;
 
   // ── Ambient ──
   private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -119,6 +117,10 @@ export class GameScene extends Scene {
   private advanceKey!: Phaser.Input.Keyboard.Key;
   private graphKey!: Phaser.Input.Keyboard.Key;
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
+  /** Tracks click-drag panning in sandbox mode */
+  private dragPanning = false;
+  private dragLastX = 0;
+  private dragLastY = 0;
   private autoPlayTimer = 0;
 
   // ── Sandbox animation state ──
@@ -129,6 +131,7 @@ export class GameScene extends Scene {
 
   // ── Dungeon generation ──
   private currentSeed = '';
+  private currentArchitectureId = '';
   private currentRooms: RoomInfo[] = [];
   private shipGraphOverlay: Phaser.GameObjects.Graphics | null = null;
   private shipGraphData: ShipGraph | null = null;
@@ -150,9 +153,19 @@ export class GameScene extends Scene {
     const shipResult = generateShip();
     this.tileMap = shipResult.tileMap;
     this.currentSeed = shipResult.seed;
+    this.currentArchitectureId = shipResult.graph.architecture;
     this.currentRooms = shipResult.rooms;
     this.shipGraphData = shipResult.graph;
-    console.log(`[dungeon] Generated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
+    console.log(`[dungeon] Generated ship with seed "${this.currentSeed}", arch="${this.currentArchitectureId}", ${shipResult.rooms.length} rooms`);
+
+    // ── Nebula background (tiled, parallax scroll behind everything) ──
+    const worldW = this.tileMap.width * TILE_SIZE;
+    const worldH = this.tileMap.height * TILE_SIZE;
+    this.nebulaBg = this.add.tileSprite(0, 0, worldW * 2, worldH * 2, TEX.NEBULA);
+    this.nebulaBg.setOrigin(0, 0);
+    this.nebulaBg.setPosition(-worldW * 0.5, -worldH * 0.5);
+    this.nebulaBg.setScrollFactor(0.3);
+    this.nebulaBg.setDepth(-1);
 
     // ── Containers (tile layer below overlay layer below entity layer) ──
     this.tileContainer = this.add.container(0, 0);
@@ -257,12 +270,24 @@ export class GameScene extends Scene {
     this.setupAmbientEffects();
 
     // ── HUD ──
-    this.hud = new HUD(this);
+    this.hud = new HUD();
     this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase);
 
     // ── Sandbox ──
     this.sandbox = new SandboxController();
     this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics);
+
+    // Register entity surface state inspector (contamination from fluids etc.)
+    this.sandbox.debugRegistry.register({
+      name: 'Surface States',
+      hasComponent: (_w, eid) => this.entityPhysics.getStates(eid).length > 0,
+      getFields: (_w, eid) => {
+        const states = this.entityPhysics.getStates(eid);
+        return states.map(({ state, turns }) => [state, `${turns} turns`]);
+      },
+      hasOverlay: false,
+    });
+
     this.sandboxPanelHandle = mount(SandboxPanel, { target: document.body, props: { ctrl: this.sandbox } });
 
     // Selection highlight (yellow outline, hidden by default)
@@ -283,6 +308,36 @@ export class GameScene extends Scene {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (!this.sandbox.active) return;
       this.handleSandboxClick(pointer);
+    });
+
+    // Scroll wheel zoom
+    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gos: unknown[], _dx: number, dy: number) => {
+      const cam = this.cameras.main;
+      const newZoom = Phaser.Math.Clamp(cam.zoom + (dy > 0 ? -0.1 : 0.1), 0.3, 3);
+      cam.setZoom(newZoom);
+    });
+
+    // Click-drag camera panning (middle mouse or right-click in sandbox)
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (!this.sandbox.active) return;
+      if (pointer.middleButtonDown() || pointer.rightButtonDown()) {
+        this.dragPanning = true;
+        this.dragLastX = pointer.x;
+        this.dragLastY = pointer.y;
+      }
+    });
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!this.dragPanning) return;
+      const cam = this.cameras.main;
+      cam.scrollX -= (pointer.x - this.dragLastX) / cam.zoom;
+      cam.scrollY -= (pointer.y - this.dragLastY) / cam.zoom;
+      this.dragLastX = pointer.x;
+      this.dragLastY = pointer.y;
+    });
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.middleButtonReleased() || pointer.rightButtonReleased()) {
+        this.dragPanning = false;
+      }
     });
 
     // React to sandbox controller events
@@ -335,6 +390,15 @@ export class GameScene extends Scene {
     if (this.sandbox.active) {
       // Don't advance while draining visual events
       if (this.sandboxDraining) return;
+
+      // Camera panning with WASD/arrows
+      const panSpeed = 300 / this.cameras.main.zoom;
+      const dt = delta / 1000;
+      const cam = this.cameras.main;
+      if (this.cursors.left.isDown || this.wasd.A.isDown) cam.scrollX -= panSpeed * dt;
+      if (this.cursors.right.isDown || this.wasd.D.isDown) cam.scrollX += panSpeed * dt;
+      if (this.cursors.up.isDown || this.wasd.W.isDown) cam.scrollY -= panSpeed * dt;
+      if (this.cursors.down.isDown || this.wasd.S.isDown) cam.scrollY += panSpeed * dt;
 
       // Manual turn advance
       if (Phaser.Input.Keyboard.JustDown(this.advanceKey)) {
@@ -395,6 +459,13 @@ export class GameScene extends Scene {
   // TILE RENDERING
   // ════════════════════════════════════════════════════════════
 
+  /** Get the texture key for a tile, using architecture-specific textures for floor/wall. */
+  private getTileTexture(tileType: number): string {
+    if (tileType === TileType.FLOOR) return archFloorTex(this.currentArchitectureId);
+    if (tileType === TileType.WALL) return archWallTex(this.currentArchitectureId);
+    return TEX.VOID;
+  }
+
   private createTileSprites(): void {
     const { width, height } = this.tileMap;
     this.tileSprites = new Array(width * height).fill(null);
@@ -402,7 +473,7 @@ export class GameScene extends Scene {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = this.tileMap.idx(x, y);
-        const tex = TILE_TEX[this.tileMap.tiles[idx]] ?? TEX.VOID;
+        const tex = this.getTileTexture(this.tileMap.tiles[idx]);
         const sprite = this.add.image(x * TILE_SIZE, y * TILE_SIZE, tex);
         sprite.setOrigin(0, 0);
         sprite.setVisible(false);
@@ -423,9 +494,8 @@ export class GameScene extends Scene {
         const sprite = this.tileSprites[idx];
         if (!sprite) continue;
 
-        // Update texture (tiles may have been painted)
-        const tex = TILE_TEX[this.tileMap.tiles[idx]] ?? TEX.VOID;
-        sprite.setTexture(tex);
+        // Update texture (tiles may have been painted/destroyed)
+        sprite.setTexture(this.getTileTexture(this.tileMap.tiles[idx]));
 
         if (revealAll) {
           sprite.setVisible(true);
@@ -606,11 +676,7 @@ export class GameScene extends Scene {
           performAttack(this.playerEid, blockingEid, this.world, this.eventQueue);
           this.turnSystem.deductEnergy(this.playerEid, 100);
           this.turnSystem.advance(this.world);
-          if (this.eventQueue.length > 0) {
-            this.eventQueue.drain(() => this.onPlayerAnimationDone());
-          } else {
-            this.onPlayerAnimationDone();
-          }
+          this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
           return;
         }
       }
@@ -625,55 +691,48 @@ export class GameScene extends Scene {
 
     // Advance to animation phase
     this.turnSystem.advance(this.world);
-
-    // Drain visual queue
-    if (this.eventQueue.length > 0) {
-      this.eventQueue.drain(() => {
-        this.onPlayerAnimationDone();
-      });
-    } else {
-      this.onPlayerAnimationDone();
-    }
+    this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
   }
 
-  private onPlayerAnimationDone(): void {
-    this.cleanupDeadEntities();
-    this.updateFOV();
-    this.renderTiles();
-    this.renderPhysicsOverlays();
-    this.updateDebugOverlays();
+  /** Run all physics systems for one turn: doors, fluids, fire, gas, contamination. */
+  private runPhysics(): void {
+    syncDoorOverlays(this.tileMap, this.world);
+    processFluidSystem(this.tileMap, this.tilePhysics, this.world, this.entityPhysics, this.eventQueue);
+    processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
+    processGasSystem(this.tileMap, this.tilePhysics, this.world, this.entitySpecies, this.eventQueue);
+    this.entityPhysics.tick();
+  }
 
-    // Advance turn
-    this.turnSystem.onPlayerAnimationComplete(this.world);
+  /**
+   * Drain the visual event queue then run post-turn cleanup.
+   * If no events are queued, runs cleanup immediately.
+   * @param onComplete Extra callback after cleanup (turn-system transitions etc.)
+   */
+  private drainAndRefresh(onComplete?: () => void): void {
+    const refresh = () => {
+      this.cleanupDeadEntities();
+      this.updateFOV();
+      this.renderTiles();
+      this.renderPhysicsOverlays();
+      this.updateDebugOverlays();
+      onComplete?.();
+    };
+
+    if (this.eventQueue.length > 0) {
+      this.eventQueue.drain(refresh);
+    } else {
+      this.renderPhysicsOverlays();
+      this.updateDebugOverlays();
+      onComplete?.();
+    }
   }
 
   /** Process enemy turn with AI behaviours, combat, and physics. */
   private processEnemyTurn(): void {
     processAITurns(this.world, this.tileMap, this.eventQueue);
-
-    // Sync door overlays then run physics
-    syncDoorOverlays(this.tileMap, this.world);
-    processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
-    processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
-    processGasSystem(this.tileMap, this.tilePhysics, this.eventQueue);
-
+    this.runPhysics();
     this.turnSystem.advance(this.world);
-
-    // Drain visual queue (AI move/attack events + physics events)
-    if (this.eventQueue.length > 0) {
-      this.eventQueue.drain(() => {
-        this.cleanupDeadEntities();
-        this.updateFOV();
-        this.renderTiles();
-        this.renderPhysicsOverlays();
-        this.updateDebugOverlays();
-        this.turnSystem.onEnemyAnimationComplete(this.world);
-      });
-    } else {
-      this.renderPhysicsOverlays();
-      this.updateDebugOverlays();
-      this.turnSystem.onEnemyAnimationComplete(this.world);
-    }
+    this.drainAndRefresh(() => this.turnSystem.onEnemyAnimationComplete(this.world));
   }
 
   // ════════════════════════════════════════════════════════════
@@ -971,8 +1030,7 @@ export class GameScene extends Scene {
 
       // Update tile sprite texture
       if (sprite) {
-        const tex = TILE_TEX[newTileIndex] ?? TEX.VOID;
-        sprite.setTexture(tex);
+        sprite.setTexture(this.getTileTexture(newTileIndex));
       }
 
       // Clean up any fire/fluid/gas overlays on this tile
@@ -981,6 +1039,56 @@ export class GameScene extends Scene {
       this.updateGasOverlay(x, y);
 
       onComplete();
+    });
+
+    // ── Explosion event (gas ignition, etc.) ──
+    this.eventQueue.registerHandler('explosion', (event: VisualEvent, onComplete: () => void) => {
+      const { x, y, radius } = event.data as { x: number; y: number; radius: number };
+      const visible = this.sandbox?.revealAll ||
+        this.tileMap.getVisibility(x, y) === Visibility.VISIBLE;
+
+      if (!visible || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+
+      const px = x * TILE_SIZE + TILE_SIZE / 2;
+      const py = y * TILE_SIZE + TILE_SIZE / 2;
+
+      // Camera shake
+      this.cameras.main.shake(300, 0.01 * (radius + 1));
+
+      // Central flash
+      const flash = this.add.image(px, py, TEX.EXPLOSION_PARTICLE);
+      flash.setScale(radius * 2);
+      flash.setAlpha(0.9);
+      flash.setBlendMode('ADD');
+      this.tweens.add({
+        targets: flash,
+        alpha: 0,
+        scale: radius * 3,
+        duration: 350,
+        ease: 'Quad.easeOut',
+        onComplete: () => flash.destroy(),
+      });
+
+      // Particle burst
+      const emitter = this.add.particles(px, py, TEX.EXPLOSION_PARTICLE, {
+        speed: { min: 30, max: 100 },
+        angle: { min: 0, max: 360 },
+        lifespan: { min: 200, max: 500 },
+        alpha: { start: 1, end: 0 },
+        scale: { start: 1.5, end: 0.2 },
+        quantity: 12,
+        blendMode: 'ADD',
+        emitting: false,
+      });
+      emitter.explode(12);
+
+      this.time.delayedCall(400, () => {
+        emitter.destroy();
+        onComplete();
+      });
     });
   }
 
@@ -994,6 +1102,7 @@ export class GameScene extends Scene {
     }
     this.destroyEntitySprite(eid);
     this.sandbox.pinnedOverlays.delete(eid);
+    this.entityPhysics.delete(eid);
     clearEntityAICache(eid);
     removeEntity(this.world, eid);
   }
@@ -1030,6 +1139,10 @@ export class GameScene extends Scene {
     }
     this.entitySprites.clear();
     this.entitySpecies.clear();
+    this.entityPhysics.clear();
+
+    // Destroy nebula background
+    if (this.nebulaBg) this.nebulaBg.destroy();
 
     // Destroy tile sprites and clear containers
     for (const sprite of this.tileSprites) {
@@ -1073,9 +1186,10 @@ export class GameScene extends Scene {
     const shipResult = generateShip(opts?.seed);
     this.tileMap = shipResult.tileMap;
     this.currentSeed = shipResult.seed;
+    this.currentArchitectureId = shipResult.graph.architecture;
     this.currentRooms = shipResult.rooms;
     this.shipGraphData = shipResult.graph;
-    console.log(`[dungeon] Regenerated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
+    console.log(`[dungeon] Regenerated ship with seed "${this.currentSeed}", arch="${this.currentArchitectureId}", ${shipResult.rooms.length} rooms`);
 
     // ── Rebuild physics ──
     this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
@@ -1110,6 +1224,16 @@ export class GameScene extends Scene {
       faction: playerSpecies?.faction ?? 'player',
     });
     Turn.energy[this.playerEid] = 100;
+
+    // ── Nebula background ──
+    const worldW = this.tileMap.width * TILE_SIZE;
+    const worldH = this.tileMap.height * TILE_SIZE;
+    this.nebulaBg = this.add.tileSprite(0, 0, worldW * 2, worldH * 2, TEX.NEBULA);
+    this.nebulaBg.setOrigin(0, 0);
+    this.nebulaBg.setPosition(-worldW * 0.5, -worldH * 0.5);
+    this.nebulaBg.setScrollFactor(0.3);
+    // Send behind containers
+    this.nebulaBg.setDepth(-1);
 
     // ── Rebuild tile sprites ──
     this.createTileSprites();
@@ -1455,35 +1579,17 @@ export class GameScene extends Scene {
   private runSandboxTurn(): void {
     if (this.sandboxDraining) return;
 
-    // Tick energy for all entities
     this.turnSystem.forceTick(this.world);
-
-    // Run AI with movement, combat
     processAITurns(this.world, this.tileMap, this.eventQueue);
+    this.runPhysics();
 
-    // Sync door overlays then run physics
-    syncDoorOverlays(this.tileMap, this.world);
-    processFluidSystem(this.tileMap, this.tilePhysics, this.eventQueue);
-    processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
-    processGasSystem(this.tileMap, this.tilePhysics, this.eventQueue);
-
-    // Drain visual queue
     if (this.eventQueue.length > 0) {
       this.sandboxDraining = true;
-      this.eventQueue.drain(() => {
-        this.sandboxDraining = false;
-        this.cleanupDeadEntities();
-        this.updateFOV();
-        this.renderTiles();
-        this.renderPhysicsOverlays();
-        this.sandbox.emit('state_changed');
-        this.updateDebugOverlays();
-      });
-    } else {
-      this.renderPhysicsOverlays();
-      this.sandbox.emit('state_changed');
-      this.updateDebugOverlays();
     }
+    this.drainAndRefresh(() => {
+      this.sandboxDraining = false;
+      this.sandbox.emit('state_changed');
+    });
   }
 
   private handleSandboxClick(pointer: Phaser.Input.Pointer): void {
@@ -1545,11 +1651,22 @@ export class GameScene extends Scene {
   }
 
   private onSandboxToggle(): void {
-    if (!this.sandbox.active) {
-      // Exiting sandbox — clean up panel state, but keep pinned overlays
+    if (this.sandbox.active) {
+      // Entering sandbox — free camera
+      this.cameras.main.stopFollow();
+    } else {
+      // Exiting sandbox — snap camera back to player and resume follow
       this.selectionHighlight.setVisible(false);
       this.autoPlayTimer = 0;
       this.sandboxDraining = false;
+      this.dragPanning = false;
+
+      const playerSprite = this.entitySprites.get(this.playerEid);
+      if (playerSprite) {
+        this.cameras.main.startFollow(playerSprite, true, 0.15, 0.15,
+          -TILE_SIZE / 2, -TILE_SIZE / 2);
+      }
+
       // Restore FOV
       this.updateFOV();
       this.renderTiles();
@@ -1695,8 +1812,7 @@ export class GameScene extends Scene {
     const idx = this.tileMap.idx(data.x, data.y);
     const sprite = this.tileSprites[idx];
     if (sprite) {
-      const tex = TILE_TEX[data.type] ?? TEX.VOID;
-      sprite.setTexture(tex);
+      sprite.setTexture(this.getTileTexture(data.type));
       sprite.setVisible(true);
       sprite.setAlpha(1);
       sprite.setTint(0xffffff);

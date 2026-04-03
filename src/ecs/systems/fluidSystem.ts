@@ -1,15 +1,20 @@
 /**
- * Fluid System — processes fluid spread and evaporation each turn.
+ * Fluid System — processes fluid spread, evaporation, and entity
+ * contamination each turn.
  *
  * Fluids spread to adjacent walkable tiles based on viscosity.
  * Evaporation reduces concentration over time.
+ * Entities standing on fluid tiles gain contamination surface states.
  * Fluid-fire interactions are handled by the fire system.
  *
  * Architecture: logic only. Pushes visual events to the queue.
  */
+import { query, hasComponent } from 'bitecs';
+import { Position, Health, Dead } from '../components';
 import { getRegistry } from '../../data/loader';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
+import type { EntityPhysicsMap } from './entityPhysics';
 import type { VisualEventQueue } from '../../visual/EventQueue';
 
 /** Cardinal adjacency offsets */
@@ -27,15 +32,27 @@ const MIN_CONCENTRATION = 0.01;
  *  Kept low so liquids mostly pool in place (think puddle, not flood). */
 const BASE_SPREAD_RATE = 0.04;
 
+/** Map fluid tags to entity surface state names */
+const FLUID_TAG_TO_STATE: Record<string, string> = {
+  suppresses_fire: 'wet',
+  intensifies_fire: 'oily',
+};
+
+/** Minimum fluid concentration to contaminate an entity */
+const CONTAMINATION_THRESHOLD = 0.15;
+
 /**
  * Run fluid system for one turn.
  * - Fluids spread to adjacent walkable tiles (rate from viscosity).
  * - Fluids evaporate over time.
+ * - Entities on fluid tiles gain contamination surface states.
  * - When a tile gains new fluid, push a fluid_spread visual event.
  */
 export function processFluidSystem(
   tileMap: TileMap,
   physics: TilePhysicsMap,
+  world: object,
+  entityPhysics: EntityPhysicsMap,
   eventQueue: VisualEventQueue,
 ): void {
   const registry = getRegistry();
@@ -151,6 +168,31 @@ export function processFluidSystem(
         if ((state.fluids.get(suppressor) ?? 0) > 0.1) {
           state.surfaceStates.add('wet');
           break;
+        }
+      }
+    }
+  }
+
+  // Transfer fluid contamination to entities on contact.
+  // Standing on fluid resets the duration; walking away lets it degrade naturally.
+  const livingEntities = query(world, [Position, Health]);
+  for (const eid of livingEntities) {
+    if (hasComponent(world, eid, Dead)) continue;
+    const ex = Position.x[eid];
+    const ey = Position.y[eid];
+    const state = physics.get(ex, ey);
+    if (!state) continue;
+
+    for (const [fluidId, conc] of state.fluids) {
+      if (conc < CONTAMINATION_THRESHOLD) continue;
+      const material = registry.materials.get(fluidId);
+      if (!material?.tags) continue;
+      const duration = material.contaminationDuration ?? 0;
+      if (duration <= 0) continue;
+      for (const tag of material.tags) {
+        const surfaceState = FLUID_TAG_TO_STATE[tag];
+        if (surfaceState) {
+          entityPhysics.set(eid, surfaceState, duration);
         }
       }
     }

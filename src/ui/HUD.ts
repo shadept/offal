@@ -1,8 +1,9 @@
 /**
- * HUD overlay — displays position, turn count, phase, FPS, and controls.
- * Uses Phaser text objects pinned to the camera.
+ * HUD — mounts a Svelte overlay for position, turn count, phase, FPS, controls.
+ * Lives in the DOM layer above the Phaser canvas, unaffected by camera zoom/scroll.
  */
-import { Scene } from 'phaser';
+import { mount, unmount } from 'svelte';
+import HudOverlay from './HudOverlay.svelte';
 import { Position } from '../ecs/components';
 import { TurnPhase } from '../types';
 
@@ -15,75 +16,46 @@ const PHASE_LABELS: Record<number, string> = {
   [-1]: 'SANDBOX',
 };
 
-const STYLE = {
-  fontFamily: 'monospace',
-  fontSize: '12px',
-  color: '#889999',
-};
-
-const STYLE_BRIGHT = {
-  fontFamily: 'monospace',
-  fontSize: '12px',
-  color: '#ccdddd',
-};
-
-const STYLE_DIM = {
-  fontFamily: 'monospace',
-  fontSize: '11px',
-  color: '#556666',
-};
-
 export class HUD {
-  private posText: Phaser.GameObjects.Text;
-  private turnText: Phaser.GameObjects.Text;
-  private phaseText: Phaser.GameObjects.Text;
-  private controlsText: Phaser.GameObjects.Text;
-  private fpsText: Phaser.GameObjects.Text;
+  private handle: Record<string, unknown>;
+  private el: HTMLDivElement;
 
-  constructor(scene: Scene) {
-    const { width, height } = scene.scale;
-
-    // Top-left: position
-    this.posText = scene.add.text(8, 6, '', STYLE_BRIGHT)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    // Top-right: turn count
-    this.turnText = scene.add.text(width - 8, 6, '', STYLE)
-      .setOrigin(1, 0)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    // Top-center: phase indicator
-    this.phaseText = scene.add.text(width / 2, 6, '', STYLE)
-      .setOrigin(0.5, 0)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    // Top-right below turn: FPS
-    this.fpsText = scene.add.text(width - 8, 20, '', STYLE_DIM)
-      .setOrigin(1, 0)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    // Bottom: controls help
-    this.controlsText = scene.add.text(
-      width / 2,
-      height - 8,
-      'WASD: move | Space: wait | Shift: skip | Tab: sandbox',
-      STYLE_DIM,
-    )
-      .setOrigin(0.5, 1)
-      .setScrollFactor(0)
-      .setDepth(100);
+  constructor() {
+    this.el = document.createElement('div');
+    document.body.appendChild(this.el);
+    this.handle = mount(HudOverlay, {
+      target: this.el,
+      props: {
+        playerX: 0,
+        playerY: 0,
+        turnCount: 0,
+        phase: '',
+        fps: 0,
+      },
+    });
   }
 
   update(playerEid: number, turnCount: number, phase: TurnPhase, sandboxActive = false, fps = 0): void {
-    const x = Position.x[playerEid];
-    const y = Position.y[playerEid];
-    this.posText.setText(`(${x}, ${y})`);
-    this.turnText.setText(`Turn ${turnCount}`);
-    this.phaseText.setText(sandboxActive ? PHASE_LABELS[-1] : (PHASE_LABELS[phase] ?? ''));
-    this.fpsText.setText(`${Math.round(fps)} fps`);
+    // Direct DOM update — Svelte 5 mount returns the component instance
+    // but we can't set props on it easily from plain TS.
+    // Instead, update the DOM container's dataset and let a MutationObserver
+    // or simpler: just manipulate the DOM elements directly.
+    const root = this.el.querySelector('.hud') as HTMLElement | null;
+    if (!root) return;
+
+    const topLeft = root.querySelector('.hud-top-left');
+    const topCenter = root.querySelector('.hud-top-center');
+    const topRight = root.querySelector('.hud-top-right');
+
+    if (topLeft) topLeft.textContent = `(${Position.x[playerEid]}, ${Position.y[playerEid]})`;
+    if (topCenter) topCenter.textContent = sandboxActive ? PHASE_LABELS[-1] : (PHASE_LABELS[phase] ?? '');
+    if (topRight) {
+      topRight.innerHTML = `<div>Turn ${turnCount}</div><div class="hud-dim">${Math.round(fps)} fps</div>`;
+    }
+  }
+
+  destroy(): void {
+    unmount(this.handle as ReturnType<typeof mount>);
+    this.el.remove();
   }
 }

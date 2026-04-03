@@ -66,33 +66,33 @@
   .sb-comp-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 0.35rem;
     cursor: pointer;
-    padding: 3px 0;
+    padding: 0.2rem 0;
   }
   .sb-comp-toggle {
-    font-size: 9px;
+    font-size: 0.6rem;
     color: #556666;
-    width: 10px;
+    width: 0.65rem;
   }
   .sb-comp-name {
-    font-size: 11px;
+    font-size: 0.7rem;
     color: #aabbbb;
     font-weight: bold;
   }
   .sb-comp-body {
-    padding-left: 16px;
-    margin-bottom: 2px;
+    padding-left: 1rem;
+    margin-bottom: 0.15rem;
   }
   .sb-debug-label {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 10px;
+    gap: 0.25rem;
+    font-size: 0.65rem;
     color: #7799aa;
     cursor: pointer;
-    margin-bottom: 2px;
-    padding-left: 16px;
+    margin-bottom: 0.15rem;
+    padding-left: 1rem;
   }
   .sb-debug-label input {
     accent-color: #e94560;
@@ -106,16 +106,16 @@
   .field-row {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 0.25rem;
   }
   .field-input {
     background: #1a1a2e;
     border: 1px solid #334;
     color: #ccdddd;
     font-family: monospace;
-    font-size: 11px;
-    padding: 1px 4px;
-    width: 60px;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.25rem;
+    width: 4rem;
     border-radius: 2px;
   }
   .field-input:focus {

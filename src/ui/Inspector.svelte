@@ -77,18 +77,18 @@
 
 <style>
   .sb-section {
-    padding: 8px 12px;
+    padding: 0.5rem 0.75rem;
     border-bottom: 1px solid #1a1a2e;
   }
   .sb-section-title {
-    font-size: 10px;
+    font-size: 0.65rem;
     color: #556666;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-bottom: 6px;
+    margin-bottom: 0.35rem;
   }
   .sb-inspect {
-    font-size: 11px;
+    font-size: 0.7rem;
     line-height: 1.6;
   }
   .sb-inspect-label {
@@ -106,11 +106,11 @@
     border: 1px solid #e94560;
     color: #e94560;
     font-family: monospace;
-    font-size: 11px;
-    padding: 3px 10px;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.6rem;
     cursor: pointer;
     border-radius: 2px;
-    margin-top: 6px;
+    margin-top: 0.35rem;
   }
   .sb-delete-btn:hover { background: #5a2030; }
   .sb-delete-btn:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -119,11 +119,11 @@
     border: 1px solid #334;
     color: #889999;
     font-family: monospace;
-    font-size: 11px;
-    padding: 4px 8px;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
     cursor: pointer;
     border-radius: 2px;
-    margin-top: 6px;
+    margin-top: 0.35rem;
     width: 100%;
   }
   .sb-clear-btn:hover { background: #252540; border-color: #558; }

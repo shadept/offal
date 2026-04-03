@@ -157,6 +157,13 @@ function parsePhysicsRules(): PhysicsRulesData {
   const defaultRules: PhysicsRulesData = {
     rules: [],
     fluidFireInteractions: { suppressors: [], intensifiers: [], intensifierThresholdMultiplier: 0.3 },
+    gasRules: {
+      toxicDamagePerTurn: 2,
+      toxicThreshold: 0.2,
+      flammableExplosionThreshold: 0.3,
+      explosionDamage: 15,
+      explosionRadius: 2,
+    },
   };
   for (const [path, raw] of Object.entries(physicsRulesFiles)) {
     try {
@@ -164,6 +171,7 @@ function parsePhysicsRules(): PhysicsRulesData {
       return {
         rules: parsed.rules ?? [],
         fluidFireInteractions: parsed.fluidFireInteractions ?? defaultRules.fluidFireInteractions,
+        gasRules: parsed.gasRules ?? defaultRules.gasRules,
       };
     } catch (e) {
       console.error(`Failed to parse physics rules file ${path}:`, e);

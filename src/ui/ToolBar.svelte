@@ -81,55 +81,55 @@
 
 <style>
   .sb-section {
-    padding: 8px 12px;
+    padding: 0.5rem 0.75rem;
     border-bottom: 1px solid #1a1a2e;
   }
   .sb-section-title {
-    font-size: 10px;
+    font-size: 0.65rem;
     color: #556666;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-bottom: 6px;
+    margin-bottom: 0.35rem;
   }
   .sb-tools {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 0.25rem;
   }
   .sb-tool-btn {
     background: #1a1a2e;
     border: 1px solid #334;
     color: #889999;
     font-family: monospace;
-    font-size: 11px;
-    padding: 4px 8px;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
     cursor: pointer;
     border-radius: 2px;
   }
   .sb-tool-btn:hover { background: #252540; border-color: #558; }
   .sb-tool-btn.active { background: #2a2a4e; border-color: #e94560; color: #ccdddd; }
   .sb-tool-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-  .sb-tool-options { min-height: 28px; }
+  .sb-tool-options { min-height: 1.75rem; }
   .sb-paint-types {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 0.25rem;
   }
   .sb-paint-btn {
     background: #1a1a2e;
     border: 1px solid #334;
     color: #889999;
     font-family: monospace;
-    font-size: 10px;
-    padding: 3px 6px;
+    font-size: 0.65rem;
+    padding: 0.2rem 0.4rem;
     cursor: pointer;
     border-radius: 2px;
   }
   .sb-paint-btn:hover { background: #252540; }
   .sb-paint-btn.active { border-color: #e94560; color: #ccdddd; }
   .sb-phase-label {
-    font-size: 10px;
+    font-size: 0.65rem;
     color: #445;
-    margin-left: 4px;
+    margin-left: 0.25rem;
   }
 </style>

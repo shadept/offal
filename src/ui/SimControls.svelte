@@ -86,23 +86,23 @@
 
 <style>
   .sb-section {
-    padding: 8px 12px;
+    padding: 0.5rem 0.75rem;
     border-bottom: 1px solid #1a1a2e;
   }
   .sb-section-title {
-    font-size: 10px;
+    font-size: 0.65rem;
     color: #556666;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-bottom: 6px;
+    margin-bottom: 0.35rem;
   }
   .sb-sim-btn {
     background: #1a1a2e;
     border: 1px solid #334;
     color: #889999;
     font-family: monospace;
-    font-size: 11px;
-    padding: 4px 10px;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.6rem;
     cursor: pointer;
     border-radius: 2px;
     width: 100%;
@@ -111,20 +111,20 @@
   .sb-sim-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
   }
   .sb-checkbox-label {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 0.35rem;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 0.7rem;
   }
   .sb-slider-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 0.35rem;
   }
   .sb-slider-row input[type="range"] {
     flex: 1;
@@ -132,32 +132,32 @@
   }
   .sb-slider-value {
     color: #ccdddd;
-    min-width: 32px;
+    min-width: 2rem;
     text-align: right;
   }
   .sb-tools {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 0.25rem;
   }
   .sb-tool-btn {
     background: #1a1a2e;
     border: 1px solid #334;
     color: #889999;
     font-family: monospace;
-    font-size: 11px;
-    padding: 4px 8px;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
     cursor: pointer;
     border-radius: 2px;
   }
   .sb-tool-btn:disabled { opacity: 0.35; cursor: not-allowed; }
   .sb-phase-label {
-    font-size: 10px;
+    font-size: 0.65rem;
     color: #445;
-    margin-left: 4px;
+    margin-left: 0.25rem;
   }
   .sb-seed-row {
-    margin-bottom: 6px;
+    margin-bottom: 0.35rem;
   }
   .sb-seed-input {
     width: 100%;
@@ -165,10 +165,9 @@
     border: 1px solid #334;
     color: #ccdddd;
     font-family: monospace;
-    font-size: 11px;
-    padding: 4px 8px;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
     border-radius: 2px;
-    box-sizing: border-box;
   }
   .sb-seed-input::placeholder { color: #445; }
   .sb-gen-btn {
@@ -176,8 +175,8 @@
     border: 1px solid #5a3a7a;
     color: #cc99ff;
     font-family: monospace;
-    font-size: 11px;
-    padding: 6px 10px;
+    font-size: 0.7rem;
+    padding: 0.35rem 0.6rem;
     cursor: pointer;
     border-radius: 2px;
     width: 100%;

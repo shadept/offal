@@ -25,37 +25,33 @@
     position: fixed;
     top: 0;
     right: 0;
-    width: 280px;
+    width: 18rem;
     height: 100vh;
     background: #111118;
     color: #889999;
     font-family: monospace;
-    font-size: 12px;
+    font-size: 0.8rem;
     z-index: 1000;
     overflow-y: auto;
     transform: translateX(100%);
     transition: transform 0.2s ease;
     border-left: 1px solid #334;
-    box-sizing: border-box;
     user-select: none;
   }
   #sandbox-panel.open {
     transform: translateX(0);
   }
-  #sandbox-panel :global(*) {
-    box-sizing: border-box;
-  }
   .sb-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
+    padding: 0.5rem 0.75rem;
     background: #0a0a12;
     border-bottom: 1px solid #334;
   }
   .sb-header h3 {
     margin: 0;
-    font-size: 13px;
+    font-size: 0.85rem;
     color: #ccdddd;
     letter-spacing: 2px;
   }
@@ -63,9 +59,9 @@
     background: none;
     border: none;
     color: #667;
-    font-size: 16px;
+    font-size: 1.1rem;
     cursor: pointer;
-    padding: 0 4px;
+    padding: 0 0.25rem;
     font-family: monospace;
   }
   .sb-close:hover { color: #e94560; }

@@ -9,5 +9,6 @@
   // Fluid-specific properties
   viscosity: 0.1,
   evaporationRate: 0.02,
+  contaminationDuration: 2,  // wet wears off quickly
   tags: ["fluid", "suppresses_fire"],
 }

@@ -16,7 +16,9 @@ const game = new Phaser.Game({
   },
   input: {
     keyboard: true,
+    mouse: { preventDefaultWheel: true, preventDefaultDown: true },
   },
+  disableContextMenu: true,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

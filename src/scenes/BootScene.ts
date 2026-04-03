@@ -24,11 +24,48 @@ export const TEX = {
   FLUID_OVERLAY: 'tile_fluid_overlay',
   SMOKE_PARTICLE: 'particle_smoke',
   GAS_OVERLAY: 'tile_gas_overlay',
+  EXPLOSION_PARTICLE: 'particle_explosion',
+  NEBULA: 'bg_nebula',
 } as const;
 
 /** Get the texture key for a species. Convention: `entity_{speciesId}` */
 export function speciesTexKey(speciesId: string): string {
   return `entity_${speciesId}`;
+}
+
+/** Get texture key for architecture-specific floor tile */
+export function archFloorTex(archId: string): string {
+  return `floor_${archId}`;
+}
+
+/** Get texture key for architecture-specific wall tile */
+export function archWallTex(archId: string): string {
+  return `wall_${archId}`;
+}
+
+/** Parse a CSS hex color string to {r,g,b} in 0-255 */
+function parseHex(hex: string): { r: number; g: number; b: number } {
+  const c = hex.replace('#', '');
+  return {
+    r: parseInt(c.substring(0, 2), 16),
+    g: parseInt(c.substring(2, 4), 16),
+    b: parseInt(c.substring(4, 6), 16),
+  };
+}
+
+/** Lighten a color by mixing toward white */
+function lighten(hex: string, amount: number): string {
+  const { r, g, b } = parseHex(hex);
+  const lr = Math.round(r + (255 - r) * amount);
+  const lg = Math.round(g + (255 - g) * amount);
+  const lb = Math.round(b + (255 - b) * amount);
+  return `rgb(${lr},${lg},${lb})`;
+}
+
+/** Darken a color by mixing toward black */
+function darken(hex: string, amount: number): string {
+  const { r, g, b } = parseHex(hex);
+  return `rgb(${Math.round(r * (1 - amount))},${Math.round(g * (1 - amount))},${Math.round(b * (1 - amount))})`;
 }
 
 export class BootScene extends Scene {
@@ -47,7 +84,9 @@ export class BootScene extends Scene {
     // Generate textures
     this.generateTileTextures();
     this.generateSpeciesTextures();
+    this.generateArchitectureTextures();
     this.generatePhysicsTextures();
+    this.generateNebulaTexture();
 
     // Show brief boot message then start game
     const text = this.add.text(
@@ -152,10 +191,9 @@ export class BootScene extends Scene {
       ctx.fill();
     });
 
-    // ── Void tile ──
-    this.generateTile(TEX.VOID, (ctx) => {
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, S, S);
+    // ── Void tile (transparent — nebula background shows through) ──
+    this.generateTile(TEX.VOID, (_ctx) => {
+      // intentionally blank — fully transparent
     });
 
     // ── Spark particle ──
@@ -190,6 +228,55 @@ export class BootScene extends Scene {
         ctx.beginPath();
         ctx.arc(S / 2 + 4, S / 2 - 3, 1.5, 0, Math.PI * 2);
         ctx.fill();
+      });
+    }
+  }
+
+  /** Generate per-architecture floor/wall textures from color data. */
+  private generateArchitectureTextures(): void {
+    const S = TILE_SIZE;
+    const registry = getRegistry();
+
+    for (const [, arch] of registry.architectures) {
+      const wallColor = arch.colors?.wallColor ?? '#334455';
+      const floorColor = arch.colors?.floorColor ?? '#1a1a2e';
+
+      // ── Floor texture ──
+      this.generateTile(archFloorTex(arch.id), (ctx) => {
+        ctx.fillStyle = floorColor;
+        ctx.fillRect(0, 0, S, S);
+        // Subtle grid edge
+        ctx.strokeStyle = lighten(floorColor, 0.08);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0.5, 0.5, S - 1, S - 1);
+        // Corner detail dots
+        ctx.fillStyle = lighten(floorColor, 0.06);
+        ctx.beginPath();
+        ctx.arc(4, 4, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(S - 4, S - 4, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // ── Wall texture ──
+      this.generateTile(archWallTex(arch.id), (ctx) => {
+        ctx.fillStyle = wallColor;
+        ctx.fillRect(0, 0, S, S);
+        // Inset shadow
+        ctx.strokeStyle = darken(wallColor, 0.3);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(1.5, 1.5, S - 3, S - 3);
+        // Top-left highlight
+        ctx.strokeStyle = lighten(wallColor, 0.15);
+        ctx.beginPath();
+        ctx.moveTo(1, 1);
+        ctx.lineTo(S - 1, 1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(1, 1);
+        ctx.lineTo(1, S - 1);
+        ctx.stroke();
       });
     }
   }
@@ -249,6 +336,17 @@ export class BootScene extends Scene {
       ctx.fillRect(0, 0, 10, 10);
     }, 10, 10);
 
+    // ── Explosion particle (bright white-yellow flash dot) ──
+    this.generateTile(TEX.EXPLOSION_PARTICLE, (ctx) => {
+      const gradient = ctx.createRadialGradient(4, 4, 0, 4, 4, 4);
+      gradient.addColorStop(0, '#ffffff');
+      gradient.addColorStop(0.3, '#ffee66');
+      gradient.addColorStop(0.6, '#ff8800');
+      gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 8, 8);
+    }, 8, 8);
+
     // ── Gas overlay (wispy, semi-transparent, tinted per-material at runtime) ──
     this.generateTile(TEX.GAS_OVERLAY, (ctx) => {
       // Soft cloudy blobs instead of a flat fill
@@ -263,6 +361,105 @@ export class BootScene extends Scene {
       drawBlob(S * 0.65, S * 0.35, S * 0.35, 0.25);
       drawBlob(S * 0.5, S * 0.65, S * 0.3, 0.2);
     });
+  }
+
+  /** Generate a tileable nebula background texture. */
+  private generateNebulaTexture(): void {
+    const S = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = S;
+    canvas.height = S;
+    const ctx = canvas.getContext('2d')!;
+
+    // Deep space base
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, S, S);
+
+    // Seeded PRNG for deterministic nebula
+    let seed = 42;
+    const rand = () => {
+      seed = (seed * 16807 + 0) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+
+    // Nebula clouds — large overlapping radial gradients
+    const clouds: { x: number; y: number; r: number; h: number; s: number; l: number; a: number }[] = [
+      { x: 0.2, y: 0.3, r: 0.5,  h: 260, s: 60, l: 15, a: 0.12 },
+      { x: 0.7, y: 0.6, r: 0.45, h: 320, s: 50, l: 12, a: 0.10 },
+      { x: 0.5, y: 0.2, r: 0.35, h: 200, s: 40, l: 10, a: 0.08 },
+      { x: 0.3, y: 0.8, r: 0.4,  h: 280, s: 55, l: 14, a: 0.09 },
+      { x: 0.8, y: 0.2, r: 0.3,  h: 340, s: 45, l: 12, a: 0.07 },
+    ];
+
+    for (const c of clouds) {
+      const cx = c.x * S;
+      const cy = c.y * S;
+      const cr = c.r * S;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
+      grad.addColorStop(0, `hsla(${c.h}, ${c.s}%, ${c.l}%, ${c.a})`);
+      grad.addColorStop(0.4, `hsla(${c.h}, ${c.s}%, ${c.l * 0.7}%, ${c.a * 0.6})`);
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, S, S);
+    }
+
+    // Wispy filaments — thin streaks of color
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = 0; i < 8; i++) {
+      const x1 = rand() * S;
+      const y1 = rand() * S;
+      const x2 = x1 + (rand() - 0.5) * S * 0.8;
+      const y2 = y1 + (rand() - 0.5) * S * 0.8;
+      const hue = 220 + rand() * 140;
+      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, 'transparent');
+      grad.addColorStop(0.3, `hsla(${hue}, 50%, 15%, 0.06)`);
+      grad.addColorStop(0.5, `hsla(${hue}, 60%, 20%, 0.08)`);
+      grad.addColorStop(0.7, `hsla(${hue}, 50%, 15%, 0.06)`);
+      grad.addColorStop(1, 'transparent');
+      ctx.lineWidth = 8 + rand() * 20;
+      ctx.strokeStyle = grad;
+      ctx.beginPath();
+      const cpx = (x1 + x2) / 2 + (rand() - 0.5) * 100;
+      const cpy = (y1 + y2) / 2 + (rand() - 0.5) * 100;
+      ctx.moveTo(x1, y1);
+      ctx.quadraticCurveTo(cpx, cpy, x2, y2);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Stars — varying sizes and brightness
+    for (let i = 0; i < 200; i++) {
+      const sx = rand() * S;
+      const sy = rand() * S;
+      const brightness = 0.3 + rand() * 0.7;
+      const size = rand() < 0.92 ? 0.5 + rand() * 0.5 : 1 + rand() * 1.5;
+
+      // Faint color tint for brighter stars
+      let color: string;
+      if (brightness > 0.8) {
+        const hue = rand() < 0.5 ? 200 + rand() * 40 : 20 + rand() * 30;
+        color = `hsla(${hue}, 40%, ${70 + brightness * 30}%, ${brightness})`;
+      } else {
+        color = `rgba(255, 255, 255, ${brightness})`;
+      }
+
+      // Glow for larger stars
+      if (size > 1) {
+        const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, size * 3);
+        glow.addColorStop(0, `rgba(200, 210, 255, ${brightness * 0.15})`);
+        glow.addColorStop(1, 'transparent');
+        ctx.fillStyle = glow;
+        ctx.fillRect(sx - size * 3, sy - size * 3, size * 6, size * 6);
+      }
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    this.textures.addCanvas(TEX.NEBULA, canvas);
   }
 
   private generateTile(

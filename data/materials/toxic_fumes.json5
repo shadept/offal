@@ -1,0 +1,13 @@
+{
+  id: "toxic_fumes",
+  name: "Toxic Fumes",
+  flammability: 0.0,
+  conductivity: 0.0,
+  hardness: 0.0,
+  mass: 0.03,
+  color: "#66cc44",
+  // Gas-specific properties
+  diffusionRate: 0.2,
+  dissipationRate: 0.03,
+  tags: ["gas", "toxic"],
+}
