@@ -7,8 +7,8 @@
   color: "#8844aa",
   spawnTags: ["organic", "parasite"],
   faction: "creatures",
-  maxHp: 14,
-  attackDamage: 3,
+  maxHp: 28,
+  attackDamage: [2, 4],
 
   parts: [
     { id: "mouth",   role: "mouth",   position: "front",    default: "leech_mouth" },

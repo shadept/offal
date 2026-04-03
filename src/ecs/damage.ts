@@ -11,7 +11,7 @@ import {
   Health, Body, CachedCapacity, PartIdentity, AttachedTo, Dead, Position,
 } from './components';
 import {
-  getPartsOf, getPartData, recalcBodyHp, recalcCapacities,
+  getPartsOf, getPartData, recalcCapacities,
   detachPart, updateSpeedFromCapacity, getSpeciesId, getSlotName,
 } from './body';
 import { getRegistry } from '../data/loader';
@@ -85,14 +85,18 @@ function applyDamageToBody(
 ): DamageResult {
   const partEid = selectTargetPart(bodyEid, opts.damageType, world);
   if (partEid < 0) {
-    // No reachable parts (e.g., all dead or all internal vs blunt attack) — miss
-    return { killed: false, targetPartEid: -1, severed: false };
+    // No targetable parts — damage goes directly to body HP
+    Health.hp[bodyEid] = Math.max(0, Health.hp[bodyEid] - damage);
+    const killed = checkCreatureDeath(bodyEid, world, eventQueue);
+    return { killed, targetPartEid: -1, severed: false };
   }
 
   const partDef = getPartData(partEid);
   const partName = partDef?.name ?? 'body part';
 
+  // Reduce part local HP (for severing) AND body HP (overall health pool)
   Health.hp[partEid] = Math.max(0, Health.hp[partEid] - damage);
+  Health.hp[bodyEid] = Math.max(0, Health.hp[bodyEid] - damage);
 
   eventQueue.push({
     type: 'part_hit',
@@ -122,9 +126,11 @@ function applyDamageToBody(
 
   let severed = false;
 
-  // Check part death
+  // Check part death — torso/segment can't be severed (body HP handles death)
   if (Health.hp[partEid] <= 0) {
-    if (partDef?.depth === 'external') {
+    const isTorso = partDef?.type === 'torso' || partDef?.type === 'segment';
+
+    if (partDef?.depth === 'external' && !isTorso) {
       // Sever: detach and drop to floor
       const x = Position.x[bodyEid];
       const y = Position.y[bodyEid];
@@ -139,7 +145,7 @@ function applyDamageToBody(
 
       gameLog.push(turn, 'combat', `${targetName}'s ${partName} is severed!`);
     } else {
-      // Internal organ: stays attached but deactivated
+      // Internal organ or torso: stays attached but deactivated
       eventQueue.push({
         type: 'part_deactivated',
         entityId: bodyEid,
@@ -150,10 +156,9 @@ function applyDamageToBody(
     }
   }
 
-  // Recalculate body aggregates (detachPart already does this for severed,
-  // but we need it for non-severed damage and deactivation too)
+  // Recalculate capacities (mobility, manipulation, etc.) from functional parts.
+  // Body HP is tracked directly — no need to re-sum from parts.
   if (!severed) {
-    recalcBodyHp(bodyEid);
     recalcCapacities(bodyEid);
     updateSpeedFromCapacity(bodyEid);
   }
@@ -225,12 +230,19 @@ export function checkCreatureDeath(
 ): boolean {
   if (hasComponent(world, bodyEid, Dead)) return true;
 
-  // Check capacity-based death
-  if (CachedCapacity.circulation[bodyEid] === 0 ||
-      CachedCapacity.structuralIntegrity[bodyEid] === 0) {
+  // Check body HP — the overall health pool
+  if (Health.hp[bodyEid] <= 0) {
     addComponent(world, bodyEid, Dead);
     eventQueue.push({ type: 'death', entityId: bodyEid, data: { cause: 'body_failure' } });
     gameLog.push(turnCounter(), 'death', `${nameResolver(bodyEid)} dies from body failure`);
+    return true;
+  }
+
+  // Check circulation (heart destroyed)
+  if (CachedCapacity.circulation[bodyEid] === 0) {
+    addComponent(world, bodyEid, Dead);
+    eventQueue.push({ type: 'death', entityId: bodyEid, data: { cause: 'organ_failure' } });
+    gameLog.push(turnCounter(), 'death', `${nameResolver(bodyEid)} dies from organ failure`);
     return true;
   }
 

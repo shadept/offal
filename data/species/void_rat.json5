@@ -7,8 +7,8 @@
   color: "#aa6633",
   spawnTags: ["organic", "vermin"],
   faction: "creatures",
-  maxHp: 6,
-  attackDamage: 2,
+  maxHp: 10,
+  attackDamage: [2, 4],
 
   parts: [
     { id: "head",    role: "head",   position: "top",      default: "rat_head" },

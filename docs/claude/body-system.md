@@ -284,8 +284,20 @@ Part functional state is derived from HP: `hp > 0` = functional, `hp === 0` = de
 
 | Component | Fields | Notes |
 |---|---|---|
-| `Body` | cachedHp, cachedMaxHp | cached sum of all attached part HPs |
+| `Health` | hp, maxHp | body HP pool — independent from part HPs, set from species.maxHp |
+| `Body` | speciesIdx | species index for lookups |
 | `CachedCapacity` | mobility, manipulation, consciousness, circulation, structuralIntegrity | recomputed on part changes |
+
+### Damage Model
+
+Body HP is an independent pool, not derived from summing part HPs. When a part is hit:
+1. Part local HP is reduced (for severing threshold)
+2. Body HP is reduced by the same damage amount
+3. If part local HP reaches 0: severed (external limbs) or deactivated (organs)
+4. If body HP reaches 0: creature dies
+5. Torso/segment parts cannot be severed — they stay attached even at 0 local HP
+
+If no parts can be targeted (all destroyed), damage goes directly to body HP.
 
 Existing components remain: `Turn`, `AI`, `FOV`, `Faction`, `PlayerTag`.
 

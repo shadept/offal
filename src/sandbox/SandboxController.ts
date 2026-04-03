@@ -234,7 +234,9 @@ export class SandboxController {
     Health.hp[eid] = hp;
     Health.maxHp[eid] = hp;
     Faction.factionIndex[eid] = getFactionIndex(species.faction ?? 'creatures');
-    CombatStats.attackDamage[eid] = species.attackDamage ?? 1;
+    const [atkMin, atkMax] = species.attackDamage ?? [1, 1];
+    CombatStats.attackDamageMin[eid] = atkMin;
+    CombatStats.attackDamageMax[eid] = atkMax;
     AI.state[eid] = 0;
     AI.targetEid[eid] = -1;
     AI.lastKnownX[eid] = -1;

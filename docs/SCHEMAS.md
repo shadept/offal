@@ -209,6 +209,9 @@ Extends a blueprint with biological/mechanical specifics. The player's starting 
   name: "Salvager",
   extends: "biped_upright",
 
+  maxHp: 43,                           // sum of all part maxHp values
+  attackDamage: [4, 6],                 // [min, max] damage tuple — rolled uniformly
+
   // Override specific slots from the parent blueprint
   slotOverrides: {
     arm_left:  { default: { type: "arm", material: "organic" } },

@@ -66,7 +66,8 @@ export const Faction = soa({
 
 // ── Combat stats ──────────────────────────────────────────────
 export const CombatStats = soa({
-  attackDamage: new Int32Array(MAX_ENTITIES),
+  attackDamageMin: new Int32Array(MAX_ENTITIES),
+  attackDamageMax: new Int32Array(MAX_ENTITIES),
 });
 
 // ── Door ──────────────────────────────────────────────────────
@@ -103,9 +104,9 @@ export const AttachedTo = soa({
 });
 
 // Body — creature-level aggregate (present on creatures with body parts)
+// Body HP is tracked via Health.hp/maxHp on the creature entity directly.
+// Parts have their own Health.hp for severing thresholds.
 export const Body = soa({
-  cachedHp: new Int32Array(MAX_ENTITIES),      // sum of all attached part HPs
-  cachedMaxHp: new Int32Array(MAX_ENTITIES),   // sum of all attached part maxHPs
   speciesIdx: new Uint16Array(MAX_ENTITIES),   // species index for lookups
 });
 

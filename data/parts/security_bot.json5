@@ -1,6 +1,7 @@
 // Security Bot body parts — mechanical biped
-// Part HPs sum to 30 (matching species maxHp)
-// hitWeight reflects absolute part size (larger than human — heavy plating)
+// Part HPs sum to 60 (matching species maxHp)
+// Chassis-dominant: 22 HP and 55% coverage — heavy plating absorbs most hits
+// Limbs are sturdier than organic (steel) but still secondary targets
 {
   parts: [
     {
@@ -9,8 +10,8 @@
       type: "head",
       species: "security_bot",
       material: "steel",
-      maxHp: 5,
-      hitWeight: 12,
+      maxHp: 8,
+      hitWeight: 8,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -23,8 +24,8 @@
       type: "torso",
       species: "security_bot",
       material: "steel",
-      maxHp: 8,
-      hitWeight: 50,
+      maxHp: 22,
+      hitWeight: 65,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -37,8 +38,8 @@
       type: "arm",
       species: "security_bot",
       material: "steel",
-      maxHp: 3,
-      hitWeight: 14,
+      maxHp: 5,
+      hitWeight: 10,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -51,8 +52,8 @@
       type: "leg",
       species: "security_bot",
       material: "steel",
-      maxHp: 4,
-      hitWeight: 20,
+      maxHp: 7,
+      hitWeight: 12,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -65,8 +66,8 @@
       type: "sensor",
       species: "security_bot",
       material: "steel",
-      maxHp: 1,
-      hitWeight: 3,
+      maxHp: 2,
+      hitWeight: 1,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -79,7 +80,7 @@
       type: "organ",
       species: "security_bot",
       material: "steel",
-      maxHp: 2,
+      maxHp: 4,
       hitWeight: 8,
       depth: "internal",
       woundEffect: "sparking",

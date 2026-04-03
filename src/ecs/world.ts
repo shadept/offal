@@ -85,7 +85,7 @@ export interface SpawnPlayerOpts {
   speed?: number;
   viewRange?: number;
   maxHp?: number;
-  attackDamage?: number;
+  attackDamage?: [number, number];
   faction?: string;
 }
 
@@ -115,7 +115,9 @@ export function spawnPlayer(world: object, opts: SpawnPlayerOpts): number {
   Health.hp[eid] = hp;
   Health.maxHp[eid] = hp;
   Faction.factionIndex[eid] = getFactionIndex(opts.faction ?? 'player');
-  CombatStats.attackDamage[eid] = opts.attackDamage ?? 5;
+  const [atkMin, atkMax] = opts.attackDamage ?? [5, 5];
+  CombatStats.attackDamageMin[eid] = atkMin;
+  CombatStats.attackDamageMax[eid] = atkMax;
 
   return eid;
 }

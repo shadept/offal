@@ -8,8 +8,8 @@
   spawnTags: ["humanoid", "player_start"],
   playerStart: true,
   faction: "player",
-  maxHp: 25,
-  attackDamage: 5,
+  maxHp: 43,
+  attackDamage: [4, 6],
 
   parts: [
     { id: "head",    role: "head",   position: "top",      default: "human_head" },

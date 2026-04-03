@@ -1,6 +1,7 @@
 // Salvager body parts — humanoid scavenger
-// Part HPs sum to 25 (matching species maxHp)
-// hitWeight reflects absolute part size (human-scale baseline)
+// Part HPs sum to 43 (matching species maxHp)
+// Torso-dominant: torso has highest HP (14) and coverage (58%)
+// Limbs are fragile but rarely targeted — hitWeights heavily favour torso
 {
   parts: [
     {
@@ -9,8 +10,8 @@
       type: "head",
       species: "salvager",
       material: "organic",
-      maxHp: 3,
-      hitWeight: 10,
+      maxHp: 5,
+      hitWeight: 6,
       depth: "external",
       woundEffect: "bleeding",
       detachedDecayRate: 2,
@@ -23,8 +24,8 @@
       type: "torso",
       species: "salvager",
       material: "organic",
-      maxHp: 5,
-      hitWeight: 40,
+      maxHp: 14,
+      hitWeight: 60,
       depth: "external",
       woundEffect: "bleeding",
       detachedDecayRate: 1,
@@ -37,8 +38,8 @@
       type: "arm",
       species: "salvager",
       material: "organic",
-      maxHp: 2,
-      hitWeight: 12,
+      maxHp: 3,
+      hitWeight: 8,
       depth: "external",
       woundEffect: "bleeding",
       detachedDecayRate: 2,
@@ -51,8 +52,8 @@
       type: "leg",
       species: "salvager",
       material: "organic",
-      maxHp: 3,
-      hitWeight: 18,
+      maxHp: 4,
+      hitWeight: 10,
       depth: "external",
       woundEffect: "bleeding",
       detachedDecayRate: 2,
@@ -66,7 +67,7 @@
       species: "salvager",
       material: "organic",
       maxHp: 1,
-      hitWeight: 2,
+      hitWeight: 1,
       depth: "external",
       woundEffect: "bleeding",
       detachedDecayRate: 3,
@@ -79,7 +80,7 @@
       type: "organ",
       species: "salvager",
       material: "organic",
-      maxHp: 2,
+      maxHp: 3,
       hitWeight: 4,
       depth: "internal",
       woundEffect: "bleeding",
@@ -93,7 +94,7 @@
       type: "organ",
       species: "salvager",
       material: "organic",
-      maxHp: 2,
+      maxHp: 3,
       hitWeight: 6,
       depth: "internal",
       woundEffect: "bleeding",
@@ -107,7 +108,7 @@
       type: "organ",
       species: "salvager",
       material: "organic",
-      maxHp: 2,
+      maxHp: 3,
       hitWeight: 6,
       depth: "internal",
       woundEffect: "bleeding",

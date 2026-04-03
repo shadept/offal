@@ -7,8 +7,8 @@
   color: "#33aa88",
   spawnTags: ["mechanical"],
   faction: "security",
-  maxHp: 8,
-  attackDamage: 2,
+  maxHp: 14,
+  attackDamage: [1, 3],
 
   parts: [
     { id: "core",       role: "torso",  position: "front",    default: "drone_core" },

@@ -179,19 +179,16 @@ const CAPACITY_KEYS: CapacityType[] = [
 ];
 
 /**
- * Recalculate Body.cachedHp and mirror to Health.hp.
- * Only current HP is recalculated — maxHP is set once at spawn and represents
- * the body's full potential. Losing parts is a wound, not a ceiling reduction.
+ * Sum part HPs for display/debug only. Body HP is tracked directly via
+ * Health.hp[creatureEid] — it is NOT derived from part sums.
  */
-export function recalcBodyHp(creatureEid: number): void {
+export function sumPartHp(creatureEid: number): number {
   const parts = getPartsOf(creatureEid);
-  let totalHp = 0;
+  let total = 0;
   for (const pEid of parts) {
-    totalHp += Health.hp[pEid];
+    total += Health.hp[pEid];
   }
-  Body.cachedHp[creatureEid] = totalHp;
-  // Mirror current HP only — maxHp stays at original body potential
-  Health.hp[creatureEid] = totalHp;
+  return total;
 }
 
 /**
@@ -352,16 +349,12 @@ export function spawnBodyForCreature(
     addToPartIndex(creatureEid, partEid);
   }
 
-  // Compute aggregates — set maxHP once from full body potential
-  const parts = getPartsOf(creatureEid);
-  let totalMaxHp = 0;
-  for (const pEid of parts) {
-    totalMaxHp += Health.maxHp[pEid];
-  }
-  Body.cachedMaxHp[creatureEid] = totalMaxHp;
-  Health.maxHp[creatureEid] = totalMaxHp;
+  // Body HP is its own pool — set from species maxHp, not summed from parts.
+  // Parts have local HP for severing; body HP tracks overall health.
+  const bodyMaxHp = species.maxHp ?? 10;
+  Health.maxHp[creatureEid] = bodyMaxHp;
+  Health.hp[creatureEid] = bodyMaxHp;
 
-  recalcBodyHp(creatureEid);
   recalcCapacities(creatureEid);
 }
 
@@ -388,8 +381,7 @@ export function detachPart(
   Renderable.spriteIndex[partEid] = 5; // placeholder: part-on-floor sprite
   Renderable.layer[partEid] = 1; // objects layer
 
-  // Recalculate body
-  recalcBodyHp(bodyEid);
+  // Recalculate capacities and speed (body HP already reduced by damage)
   recalcCapacities(bodyEid);
   updateSpeedFromCapacity(bodyEid);
 }

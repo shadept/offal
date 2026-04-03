@@ -130,14 +130,21 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
     name: 'CombatStats',
     hasComponent: (w, eid) => hasComponent(w, eid, CombatStats),
     getFields: (_w, eid) => [
-      ['Attack', String(CombatStats.attackDamage[eid])],
+      ['Attack', `${CombatStats.attackDamageMin[eid]}-${CombatStats.attackDamageMax[eid]}`],
     ],
     hasOverlay: false,
     editableFields: new Set(['Attack']),
     setField(_w, eid, label, value) {
-      const n = parseInt(value, 10);
-      if (Number.isNaN(n)) return;
-      if (label === 'Attack') CombatStats.attackDamage[eid] = n;
+      if (label !== 'Attack') return;
+      const parts = value.split('-').map(s => parseInt(s.trim(), 10));
+      if (parts.some(Number.isNaN)) return;
+      if (parts.length === 1) {
+        CombatStats.attackDamageMin[eid] = parts[0];
+        CombatStats.attackDamageMax[eid] = parts[0];
+      } else {
+        CombatStats.attackDamageMin[eid] = parts[0];
+        CombatStats.attackDamageMax[eid] = parts[1];
+      }
     },
   },
   {
@@ -237,7 +244,7 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
     hasComponent: (w, eid) => hasComponent(w, eid, Body),
     getFields: (w, eid) => {
       const fields: [string, string][] = [
-        ['Body HP', `${Body.cachedHp[eid]} / ${Body.cachedMaxHp[eid]}`],
+        ['Body HP', `${Health.hp[eid]} / ${Health.maxHp[eid]}`],
       ];
       const speciesId = getSpeciesId(Body.speciesIdx[eid]);
       if (speciesId) fields.push(['Species', speciesId]);

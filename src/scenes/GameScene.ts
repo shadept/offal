@@ -231,7 +231,7 @@ export class GameScene extends Scene {
       speed: playerSpecies?.speed ?? 100,
       viewRange: playerSpecies?.fovRange ?? 8,
       maxHp: playerSpecies?.maxHp ?? 25,
-      attackDamage: playerSpecies?.attackDamage ?? 5,
+      attackDamage: playerSpecies?.attackDamage ?? [5, 5],
       faction: playerSpecies?.faction ?? 'player',
     });
     if (playerSpecies) {
@@ -1443,7 +1443,7 @@ export class GameScene extends Scene {
       speed: playerSpecies?.speed ?? 100,
       viewRange: playerSpecies?.fovRange ?? 8,
       maxHp: playerSpecies?.maxHp ?? 25,
-      attackDamage: playerSpecies?.attackDamage ?? 5,
+      attackDamage: playerSpecies?.attackDamage ?? [5, 5],
       faction: playerSpecies?.faction ?? 'player',
     });
     if (playerSpecies) {
@@ -2109,7 +2109,9 @@ export class GameScene extends Scene {
       Health.hp[eid] = hp;
       Health.maxHp[eid] = hp;
       Faction.factionIndex[eid] = getFactionIndex(species.faction ?? 'creatures');
-      CombatStats.attackDamage[eid] = species.attackDamage ?? 1;
+      const [atkMin, atkMax] = species.attackDamage ?? [1, 1];
+      CombatStats.attackDamageMin[eid] = atkMin;
+      CombatStats.attackDamageMax[eid] = atkMax;
       AI.state[eid] = 0;
       AI.targetEid[eid] = -1;
       AI.lastKnownX[eid] = -1;

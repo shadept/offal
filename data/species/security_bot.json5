@@ -7,8 +7,8 @@
   color: "#4488cc",
   spawnTags: ["mechanical", "security"],
   faction: "security",
-  maxHp: 30,
-  attackDamage: 6,
+  maxHp: 60,
+  attackDamage: [5, 8],
 
   parts: [
     { id: "head",     role: "head",   position: "top",      default: "bot_head" },

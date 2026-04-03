@@ -149,7 +149,7 @@ export interface SpeciesData {
   playerStart?: boolean;
   faction?: string;
   maxHp?: number;
-  attackDamage?: number;
+  attackDamage?: [number, number];
   parts?: PartSlotDef[];
   compatibleWith?: string[];
   requiredParts?: string[];

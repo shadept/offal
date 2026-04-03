@@ -597,7 +597,9 @@ export function performAttack(
   world: object,
   eventQueue: VisualEventQueue,
 ): void {
-  const damage = CombatStats.attackDamage[attacker] || 1;
+  const min = CombatStats.attackDamageMin[attacker] || 1;
+  const max = CombatStats.attackDamageMax[attacker] || min;
+  const damage = min + Math.floor(Math.random() * (max - min + 1));
   applyDamage(target, damage, {
     source: 'melee',
     attackerEid: attacker,

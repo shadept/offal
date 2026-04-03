@@ -1,6 +1,7 @@
 // Scout Drone body parts — lightweight hover platform
-// Part HPs sum to 7 (matching species maxHp)
-// hitWeight reflects absolute part size (small drone — compact frame)
+// Part HPs sum to 14 (matching species maxHp)
+// Core-dominant: 6 HP and 63% coverage — compact frame absorbs most hits
+// Rotors are secondary targets; losing one degrades hover capability
 {
   parts: [
     {
@@ -9,8 +10,8 @@
       type: "torso",
       species: "drone_scout",
       material: "steel",
-      maxHp: 2,
-      hitWeight: 8,
+      maxHp: 6,
+      hitWeight: 12,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -23,8 +24,8 @@
       type: "rotor",
       species: "drone_scout",
       material: "steel",
-      maxHp: 1,
-      hitWeight: 4,
+      maxHp: 2,
+      hitWeight: 3,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -38,7 +39,7 @@
       species: "drone_scout",
       material: "steel",
       maxHp: 1,
-      hitWeight: 2,
+      hitWeight: 1,
       depth: "external",
       woundEffect: "sparking",
       detachedDecayRate: 0,
@@ -51,7 +52,7 @@
       type: "organ",
       species: "drone_scout",
       material: "steel",
-      maxHp: 2,
+      maxHp: 3,
       hitWeight: 3,
       depth: "internal",
       woundEffect: "sparking",
