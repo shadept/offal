@@ -143,21 +143,27 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 ---
 
 ## Phase 6 — Modular Bodies
-*Goal: lose a limb in combat, capabilities change. Reattach it.*
+*Goal: lose a limb in combat, capabilities change.*
 
-- [ ] 🔴 Body component: slot list + occupant limbs
-- [ ] 🔴 Limb component: type, material, HP, slot
-- [ ] 🔴 Body capacity computation (mobility, manipulation, circulation)
-- [ ] 🔴 Locomotion derived from active slots
-- [ ] 🔴 Per-limb damage targeting
-- [ ] 🔴 Limb loss: drop as item, stump state, capability removed
-- [ ] 🟡 Internal organs: heart, lungs, stomach as special slots
-- [ ] 🟡 Limb material participates in physics (wooden arm near fire = burning)
-- [ ] 🟡 Limb attachment: pick up severed limb, attach to compatible stump
-- [ ] 🟡 Rejection status on material mismatch
-- [ ] 🟡 Modular sprite composition from active limbs
+### Body System ✅
+- [x] ✅ Body + CachedCapacity components on creatures, parts as ECS entities
+- [x] ✅ PartIdentity, PartMaterial, AttachedTo components; Part Lookup Index
+- [x] ✅ Body capacity computation (mobility, manipulation, consciousness, circulation, structuralIntegrity)
+- [x] ✅ Locomotion/speed derived from functional parts and species baseline
+- [x] ✅ Per-part damage targeting (weighted random by hitWeight, depth filter by damage type)
+- [x] ✅ Severance: external parts at 0 HP drop to floor as entities, body recalcs
+- [x] ✅ Internal organ deactivation (stays attached, dead weight)
+- [x] ✅ Death from required part loss or capacity collapse
+- [x] ✅ Unified damage pipeline (applyDamage) replaces 3 separate damage sites
+- [x] ✅ Floor part decay, environmental damage to severed parts
+- [x] ✅ Game log panel (combat, environment, death events)
+- [x] ✅ Sandbox: multi-entity inspector, sever buttons, capacity readout
 
-**Exit criteria**: player loses arm in combat, movement affected. Can pick up and reattach.
+### Organs & Material Physics
+- [x] ✅ Internal organs: heart, lungs, stomach as internal-depth parts
+- [ ] 🟡 Part material participates in physics (wooden arm near fire = burning)
+
+**Exit criteria**: player loses arm in combat, movement and capabilities change visibly. Severed limbs visible on ground. ✅
 
 ---
 
@@ -171,13 +177,25 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 - [ ] 🔴 Craft action
 - [ ] 🟡 Potion system: shuffled identities per run
 - [ ] 🟡 Fluid dipping
-- [ ] ⚪ LLM fallback (Phase 10)
+- [ ] ⚪ LLM fallback (Phase 11)
 
 **Exit criteria**: pick up two items, craft them, get a result.
 
 ---
 
-## Phase 8 — Meta Progression & Hub
+## Phase 8 — Limb Reattachment
+*Goal: pick up a severed limb and graft it back on.*
+
+- [ ] 🔴 Limb attachment: pick up severed limb, attach to compatible stump
+- [ ] 🔴 Body-slot attachment UI
+- [ ] 🟡 Rejection status on material mismatch
+- [ ] 🟡 Modular sprite composition from active limbs
+
+**Exit criteria**: player picks up a severed limb, attaches it to a stump, capabilities restored. Mismatched material triggers rejection.
+
+---
+
+## Phase 9 — Meta Progression & Hub
 *Goal: die, go to hub, spend resources, start new run.*
 
 - [ ] 🔴 Run state tracking (materials, bio knowledge, tech knowledge)
@@ -192,7 +210,7 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 
 ---
 
-## Phase 9 — Polish & Content
+## Phase 10 — Polish & Content
 *Goal: enough content for a complete early run.*
 
 - [ ] Tutorial ship (hand-crafted)
@@ -208,7 +226,7 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 
 ---
 
-## Phase 10 — LLM Crafting Fallback
+## Phase 11 — LLM Crafting Fallback
 *Goal: unrecognised combos produce named, described results.*
 
 - [ ] Evaluate WebLLM / WebGPU feasibility
@@ -228,4 +246,4 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 
 ---
 
-*Last updated: 2026-03-31*
+*Last updated: 2026-04-03*
