@@ -9,4 +9,16 @@
   faction: "security",
   maxHp: 8,
   attackDamage: 2,
+
+  parts: [
+    { id: "core",       role: "torso",  position: "front",    default: "drone_core" },
+    { id: "rotor_l",    role: "rotor",  position: "left",     default: "drone_rotor" },
+    { id: "rotor_r",    role: "rotor",  position: "right",    default: "drone_rotor" },
+    { id: "sensors",    role: "sensor", position: "top",      default: "drone_sensors" },
+    { id: "power_core", role: "organ",  position: "internal", default: "drone_power_core" },
+  ],
+
+  compatibleWith: ["metal"],
+  requiredParts: ["power_core"],
+  locomotionBaseline: "hover",
 }

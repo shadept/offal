@@ -9,9 +9,11 @@
 import { hasComponent } from 'bitecs';
 import {
   Position, FOV, AI, AIState, Health, Turn, Faction,
-  CombatStats, Renderable, PlayerTag,
+  CombatStats, Renderable, PlayerTag, Body, CachedCapacity, PartIdentity,
 } from '../ecs/components';
 import { getFactionId } from '../ecs/factions';
+import { getPartsOf, getPartData, getSlotName, getSpeciesId } from '../ecs/body';
+import { AttachedTo } from '../ecs/components';
 import { getAIPath } from '../ecs/systems/aiSystem';
 import { computeFOVTiles } from '../map/fov';
 import { TileMap, TILE_SIZE } from '../map/TileMap';
@@ -28,6 +30,17 @@ export interface OverlayGraphics {
 
 // ── Inspector interface ──
 
+/** An action button rendered next to a field row. */
+export interface FieldAction {
+  label: string;
+  /** field key this action belongs to */
+  field: string;
+  /** type tag for routing through the controller */
+  actionType?: string;
+  /** additional data for the action */
+  data?: Record<string, number>;
+}
+
 export interface ComponentInspector {
   /** Display name shown in the panel section header. */
   name: string;
@@ -39,6 +52,8 @@ export interface ComponentInspector {
   hasOverlay: boolean;
   /** Draw the debug overlay. Only called when hasOverlay is true. */
   renderOverlay?(gfx: OverlayGraphics, world: object, eid: number, map: TileMap): void;
+  /** Per-field action buttons (e.g. "sever" on body parts). */
+  getActions?(world: object, eid: number): FieldAction[];
   /** Field labels that can be edited directly in the inspector. */
   editableFields?: ReadonlySet<string>;
   /** Set a field value from a string. Only called for editable fields. */
@@ -216,6 +231,75 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
         }
       }
     },
+  },
+  {
+    name: 'Body',
+    hasComponent: (w, eid) => hasComponent(w, eid, Body),
+    getFields: (w, eid) => {
+      const fields: [string, string][] = [
+        ['Body HP', `${Body.cachedHp[eid]} / ${Body.cachedMaxHp[eid]}`],
+      ];
+      const speciesId = getSpeciesId(Body.speciesIdx[eid]);
+      if (speciesId) fields.push(['Species', speciesId]);
+
+      // List all attached parts
+      const parts = getPartsOf(eid);
+      for (const pEid of parts) {
+        const partDef = getPartData(pEid);
+        const slotName = getSlotName(AttachedTo.slotId[pEid]) ?? '?';
+        const hp = Health.hp[pEid];
+        const maxHp = Health.maxHp[pEid];
+        const name = partDef?.name ?? 'Unknown';
+        const status = hp <= 0 ? ' [DEAD]' : '';
+        fields.push([slotName, `${name} ${hp}/${maxHp}${status}`]);
+      }
+      return fields;
+    },
+    getActions: (_w, eid) => {
+      const actions: FieldAction[] = [];
+      const parts = getPartsOf(eid);
+      for (const pEid of parts) {
+        if (Health.hp[pEid] <= 0) continue;
+        const slotName = getSlotName(AttachedTo.slotId[pEid]) ?? '?';
+        actions.push({
+          label: 'sever',
+          field: slotName,
+          actionType: 'sever_part',
+          data: { creatureEid: eid, partEid: pEid },
+        });
+      }
+      return actions;
+    },
+    hasOverlay: false,
+  },
+  {
+    name: 'Capacity',
+    hasComponent: (w, eid) => hasComponent(w, eid, CachedCapacity),
+    getFields: (_w, eid) => [
+      ['Mobility', `${CachedCapacity.mobility[eid]}%`],
+      ['Manipulation', `${CachedCapacity.manipulation[eid]}%`],
+      ['Consciousness', `${CachedCapacity.consciousness[eid]}%`],
+      ['Circulation', `${CachedCapacity.circulation[eid]}%`],
+      ['Structure', `${CachedCapacity.structuralIntegrity[eid]}%`],
+    ],
+    hasOverlay: false,
+  },
+  {
+    name: 'PartIdentity',
+    hasComponent: (w, eid) => hasComponent(w, eid, PartIdentity),
+    getFields: (_w, eid) => {
+      const partDef = getPartData(eid);
+      const fields: [string, string][] = [];
+      if (partDef) {
+        fields.push(['Part', partDef.name]);
+        fields.push(['Type', partDef.type]);
+        fields.push(['Material', partDef.material]);
+        fields.push(['Depth', partDef.depth]);
+        fields.push(['Decay Rate', String(partDef.detachedDecayRate)]);
+      }
+      return fields;
+    },
+    hasOverlay: false,
   },
   {
     name: 'Player',

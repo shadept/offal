@@ -7,6 +7,19 @@
   color: "#aa6633",
   spawnTags: ["organic", "vermin"],
   faction: "creatures",
-  maxHp: 12,
-  attackDamage: 4,
+  maxHp: 6,
+  attackDamage: 2,
+
+  parts: [
+    { id: "head",    role: "head",   position: "top",      default: "rat_head" },
+    { id: "torso",   role: "torso",  position: "front",    default: "rat_torso" },
+    { id: "leg_fl",  role: "leg",    position: "left",     default: "rat_leg" },
+    { id: "leg_fr",  role: "leg",    position: "right",    default: "rat_leg" },
+    { id: "leg_bl",  role: "leg",    position: "left",     default: "rat_leg" },
+    { id: "leg_br",  role: "leg",    position: "right",    default: "rat_leg" },
+  ],
+
+  compatibleWith: ["organic"],
+  requiredParts: ["head", "torso"],
+  locomotionBaseline: "quadruped",
 }

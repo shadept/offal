@@ -21,7 +21,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed' | 'explosion';
+export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed' | 'explosion' | 'part_hit' | 'part_severed' | 'part_deactivated' | 'part_destroyed';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {
@@ -90,6 +90,53 @@ export interface TileData {
   destroyedTo?: string;
 }
 
+/** Part type roles — capability categories */
+export type PartRole = 'arm' | 'leg' | 'head' | 'torso' | 'organ' | 'sensor' | 'mouth' | 'segment' | 'rotor';
+
+/** Part depth — determines damage targeting eligibility */
+export type PartDepth = 'external' | 'internal';
+
+/** Damage type — determines which parts can be targeted */
+export type DamageType = 'blunt' | 'cut' | 'stab' | 'energy';
+
+/** Capacity types that parts can contribute to */
+export type CapacityType = 'mobility' | 'manipulation' | 'consciousness' | 'circulation' | 'structuralIntegrity';
+
+/** Detach action — what happens when a part is severed */
+export type DetachAction =
+  | { action: 'become_hostile'; faction: string }
+  | { action: 'explode'; damage: number; radius: number; onlyViolent: boolean }
+  | { action: 'flailing'; turns: number; damage: number }
+  | { action: 'release_spores'; gas: string; concentration: number }
+  | { action: 'seek_host'; fallback: string };
+
+/** Part definition loaded from data/parts/*.json5 */
+export interface PartData {
+  id: string;
+  name: string;
+  type: PartRole;
+  species: string;
+  material: string;
+  maxHp: number;
+  hitWeight: number;
+  depth: PartDepth;
+  woundEffect: string | null;
+  detachedDecayRate: number;
+  onDetach: DetachAction | null;
+  weaponDamage?: number | null;
+  weaponRange?: number | null;
+  weaponDamageType?: DamageType | null;
+  capacityContribution: CapacityType[] | null;
+}
+
+/** Slot definition within a species body plan */
+export interface PartSlotDef {
+  id: string;
+  role: PartRole;
+  position: string;
+  default: string;
+}
+
 /** Species definition loaded from data/species/*.json5 */
 export interface SpeciesData {
   id: string;
@@ -103,6 +150,10 @@ export interface SpeciesData {
   faction?: string;
   maxHp?: number;
   attackDamage?: number;
+  parts?: PartSlotDef[];
+  compatibleWith?: string[];
+  requiredParts?: string[];
+  locomotionBaseline?: string;
 }
 
 /** Faction definition loaded from data/factions.json5 */
@@ -188,8 +239,7 @@ export interface RoomData {
 /** Ship class room definition */
 export interface ShipRoomDef {
   function: string;
-  /** Room size: "small" | "medium" | "large" */
-  size: string;
+  size: 'small' | 'medium' | 'large';
   /** If true, this room must be at an extremity of the ship */
   extremity?: boolean;
 }
@@ -201,8 +251,7 @@ export interface ShipClassData {
   rooms: ShipRoomDef[];
   /** Pairs of room function IDs that must be connected */
   connections: [string, string][];
-  /** Shape constraint for packing: "elongated" | "compact" | "round" */
-  shape: string;
+  shape: 'elongated' | 'compact' | 'round';
 }
 
 /** Architecture layout parameters loaded from data/architectures.json5 */
@@ -263,6 +312,7 @@ export interface DataRegistry {
   tiles: Map<string, TileData>;
   tilesByIndex: Map<number, TileData>;
   species: Map<string, SpeciesData>;
+  parts: Map<string, PartData>;
   maps: Map<string, MapData>;
   factions: Map<string, FactionData>;
   physicsRules: PhysicsRulesData;

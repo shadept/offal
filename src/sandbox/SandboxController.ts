@@ -8,6 +8,9 @@
 import { query, addEntity, addComponent, removeEntity, hasComponent } from 'bitecs';
 import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, AI, Health, Faction, CombatStats, Dead } from '../ecs/components';
 import { getFactionIndex } from '../ecs/factions';
+import { spawnBodyForCreature, detachPart, getPartData } from '../ecs/body';
+import { AttachedTo, Body } from '../ecs/components';
+import { checkCreatureDeath } from '../ecs/damage';
 import { TileMap } from '../map/TileMap';
 import { Visibility } from '../types';
 import { getRegistry } from '../data/loader';
@@ -34,7 +37,8 @@ export class SandboxController {
 
   // ── Selection ──
   selectedTile: { x: number; y: number } | null = null;
-  selectedEntity: number | null = null;
+  selectedEntity: number | null = null;  // first entity (backward compat)
+  selectedEntities: number[] = [];       // all entities at selected tile
 
   // ── Tool state ──
   activeTool: SandboxTool = 'inspect';
@@ -98,6 +102,7 @@ export class SandboxController {
     if (!this.active) {
       this.selectedTile = null;
       this.selectedEntity = null;
+      this.selectedEntities = [];
       this.autoPlay = false;
       // pinnedOverlays intentionally NOT cleared — survive panel close
     }
@@ -150,6 +155,16 @@ export class SandboxController {
       if (Position.x[eid] === x && Position.y[eid] === y) return eid;
     }
     return null;
+  }
+
+  findAllEntitiesAt(x: number, y: number): number[] {
+    const result: number[] = [];
+    const entities = query(this.world, [Position]);
+    for (const eid of entities) {
+      if (hasComponent(this.world, eid, Dead)) continue;
+      if (Position.x[eid] === x && Position.y[eid] === y) result.push(eid);
+    }
+    return result;
   }
 
   getEntityInfo(eid: number): EntityInspectData | null {
@@ -228,6 +243,8 @@ export class SandboxController {
     AI.cachedTargetX[eid] = -1;
     AI.cachedTargetY[eid] = -1;
 
+    spawnBodyForCreature(this.world, eid, species, getRegistry());
+
     this.emit('entity_spawned', { eid, x, y, speciesId: species.id });
     return eid;
   }
@@ -287,15 +304,45 @@ export class SandboxController {
     clearEntityAICache(eid);
     removeEntity(this.world, eid);
     this.pinnedOverlays.delete(eid);
-    this.selectedEntity = null;
+    this.selectedEntities = this.selectedEntities.filter(e => e !== eid);
+    this.selectedEntity = this.selectedEntities[0] ?? null;
     this.emit('entity_removed', { eid });
     return true;
+  }
+
+  /** Execute a field action by type. Called from ComponentSection. */
+  runFieldAction(actionType: string, data: Record<string, number>): void {
+    if (actionType === 'sever_part') {
+      this.severPart(data.creatureEid, data.partEid);
+    }
+  }
+
+  /** Sever a part from a creature body. */
+  private severPart(creatureEid: number, partEid: number): void {
+    if (!hasComponent(this.world, creatureEid, Body)) return;
+    if (!hasComponent(this.world, partEid, AttachedTo)) return;
+
+    const x = Position.x[creatureEid];
+    const y = Position.y[creatureEid];
+    const partDef = getPartData(partEid);
+
+    detachPart(this.world, partEid, creatureEid, x, y);
+
+    this.eventQueue.push({
+      type: 'part_severed',
+      entityId: creatureEid,
+      data: { partEid, partName: partDef?.name ?? 'part', x, y },
+    });
+
+    checkCreatureDeath(creatureEid, this.world, this.eventQueue);
+    this.emit('selection_changed');
   }
 
   selectTile(x: number, y: number): void {
     if (!this.tileMap.inBounds(x, y)) return;
     this.selectedTile = { x, y };
-    this.selectedEntity = this.findEntityAt(x, y);
+    this.selectedEntities = this.findAllEntitiesAt(x, y);
+    this.selectedEntity = this.selectedEntities[0] ?? null;
     this.emit('selection_changed');
   }
 
@@ -412,6 +459,7 @@ export class SandboxController {
   generateNewShip(seed?: string): void {
     this.selectedTile = null;
     this.selectedEntity = null;
+    this.selectedEntities = [];
     this.autoPlay = false;
     this.emit('generate_ship', { seed });
   }

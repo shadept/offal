@@ -82,6 +82,42 @@ export const Teleporter = soa({
   linkedEid: new Int32Array(MAX_ENTITIES),
 });
 
+// ── Body system ──────────────────────────────────────────────
+
+// Part identity — links part entity to its definition
+export const PartIdentity = soa({
+  partDefId: new Uint16Array(MAX_ENTITIES),   // index into partDef registry
+  typeId: new Uint8Array(MAX_ENTITIES),        // PartType enum value
+  speciesId: new Uint16Array(MAX_ENTITIES),    // index into species registry
+});
+
+// Part material — physical material of a body part
+export const PartMaterial = soa({
+  materialId: new Uint8Array(MAX_ENTITIES),    // index into material registry
+});
+
+// Attached to — links part entity to parent creature
+export const AttachedTo = soa({
+  parentEid: new Int32Array(MAX_ENTITIES),     // creature entity ID
+  slotId: new Uint16Array(MAX_ENTITIES),       // index into slot name registry
+});
+
+// Body — creature-level aggregate (present on creatures with body parts)
+export const Body = soa({
+  cachedHp: new Int32Array(MAX_ENTITIES),      // sum of all attached part HPs
+  cachedMaxHp: new Int32Array(MAX_ENTITIES),   // sum of all attached part maxHPs
+  speciesIdx: new Uint16Array(MAX_ENTITIES),   // species index for lookups
+});
+
+// Cached capacity — derived from functional attached parts
+export const CachedCapacity = soa({
+  mobility: new Uint8Array(MAX_ENTITIES),            // 0-100 percentage
+  manipulation: new Uint8Array(MAX_ENTITIES),
+  consciousness: new Uint8Array(MAX_ENTITIES),
+  circulation: new Uint8Array(MAX_ENTITIES),
+  structuralIntegrity: new Uint8Array(MAX_ENTITIES),
+});
+
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};

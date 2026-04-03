@@ -10,4 +10,21 @@
   faction: "player",
   maxHp: 25,
   attackDamage: 5,
+
+  parts: [
+    { id: "head",    role: "head",   position: "top",      default: "human_head" },
+    { id: "torso",   role: "torso",  position: "front",    default: "human_torso" },
+    { id: "arm_l",   role: "arm",    position: "left",     default: "human_arm" },
+    { id: "arm_r",   role: "arm",    position: "right",    default: "human_arm" },
+    { id: "leg_l",   role: "leg",    position: "left",     default: "human_leg" },
+    { id: "leg_r",   role: "leg",    position: "right",    default: "human_leg" },
+    { id: "eyes",    role: "sensor", position: "top",      default: "human_eyes" },
+    { id: "heart",   role: "organ",  position: "internal", default: "human_heart" },
+    { id: "lungs",   role: "organ",  position: "internal", default: "human_lungs" },
+    { id: "stomach", role: "organ",  position: "internal", default: "human_stomach" },
+  ],
+
+  compatibleWith: ["organic"],
+  requiredParts: ["heart", "lungs", "head"],
+  locomotionBaseline: "biped",
 }

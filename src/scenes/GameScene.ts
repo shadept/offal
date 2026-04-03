@@ -19,14 +19,16 @@ import type { ShipGraph } from '../map/shipGen';
 import { addEntity, addComponent, removeEntity, hasComponent, query } from 'bitecs';
 import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
-  Health, Faction, CombatStats, Dead, Door, Teleporter,
+  Health, Faction, CombatStats, Dead, Door, Teleporter, Body,
 } from '../ecs/components';
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
+import { initBodyIndices, spawnBodyForCreature, getPartsOf, clearPartIndex } from '../ecs/body';
 import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove, getBlockingEntity, syncDoorOverlays } from '../ecs/systems/movementSystem';
 import { processFireSystem } from '../ecs/systems/fireSystem';
 import { processFluidSystem } from '../ecs/systems/fluidSystem';
 import { processGasSystem } from '../ecs/systems/gasSystem';
+import { processBodySystem } from '../ecs/systems/bodySystem';
 import { TilePhysicsMap } from '../ecs/systems/tilePhysics';
 import { EntityPhysicsMap } from '../ecs/systems/entityPhysics';
 import { VisualEventQueue } from '../visual/EventQueue';
@@ -41,6 +43,9 @@ import { TEX, speciesTexKey, archFloorTex, archWallTex } from './BootScene';
 import { HUD } from '../ui/HUD';
 import { SandboxController } from '../sandbox/SandboxController';
 import { mount, unmount } from 'svelte';
+import GameLogPanel from '../ui/GameLogPanel.svelte';
+import { setDamageLogContext } from '../ecs/damage';
+import { gameLog } from '../ui/gameLog';
 import SandboxPanel from '../ui/SandboxPanel.svelte';
 import { processAITurns, performAttack, clearEntityAICache } from '../ecs/systems/aiSystem';
 import { getRegistry } from '../data/loader';
@@ -113,6 +118,7 @@ export class GameScene extends Scene {
   // ── Sandbox ──
   private sandbox!: SandboxController;
   private sandboxPanelHandle: Record<string, unknown> | null = null;
+  private gameLogHandle: Record<string, unknown> | null = null;
   private tabKey!: Phaser.Input.Keyboard.Key;
   private advanceKey!: Phaser.Input.Keyboard.Key;
   private graphKey!: Phaser.Input.Keyboard.Key;
@@ -143,6 +149,7 @@ export class GameScene extends Scene {
   create(): void {
     // ── Init faction index mapping ──
     initFactions();
+    initBodyIndices(getRegistry());
 
     // ── ECS setup ──
     this.world = createGameWorld();
@@ -219,6 +226,9 @@ export class GameScene extends Scene {
       attackDamage: playerSpecies?.attackDamage ?? 5,
       faction: playerSpecies?.faction ?? 'player',
     });
+    if (playerSpecies) {
+      spawnBodyForCreature(this.world, this.playerEid, playerSpecies, registry);
+    }
     Turn.energy[this.playerEid] = 100;
 
     // ── Create tile sprites ──
@@ -289,6 +299,21 @@ export class GameScene extends Scene {
     });
 
     this.sandboxPanelHandle = mount(SandboxPanel, { target: document.body, props: { ctrl: this.sandbox } });
+
+    // ── Game log ──
+    this.gameLogHandle = mount(GameLogPanel, { target: document.body });
+    setDamageLogContext(
+      (eid: number) => {
+        if (eid === this.playerEid) return 'You';
+        const speciesId = this.entitySpecies.get(eid);
+        if (speciesId) {
+          const species = getRegistry().species.get(speciesId);
+          return `${species?.name ?? speciesId} #${eid}`;
+        }
+        return `entity #${eid}`;
+      },
+      () => this.turnSystem.turnCount,
+    );
 
     // Selection highlight (yellow outline, hidden by default)
     this.selectionHighlight = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE);
@@ -700,6 +725,7 @@ export class GameScene extends Scene {
     processFluidSystem(this.tileMap, this.tilePhysics, this.world, this.entityPhysics, this.eventQueue);
     processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
     processGasSystem(this.tileMap, this.tilePhysics, this.world, this.entitySpecies, this.eventQueue);
+    processBodySystem(this.world, this.eventQueue);
     this.entityPhysics.tick();
   }
 
@@ -1090,6 +1116,61 @@ export class GameScene extends Scene {
         onComplete();
       });
     });
+
+    // ── Part hit event — flash body red, show part name ──
+    this.eventQueue.registerHandler('part_hit', (event: VisualEvent, onComplete: () => void) => {
+      const sprite = this.entitySprites.get(event.entityId);
+      if (!sprite || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+      sprite.setTint(0xff4444);
+      this.time.delayedCall(120, () => {
+        sprite.clearTint();
+        onComplete();
+      });
+    });
+
+    // ── Part severed — flash body, create part sprite on floor ──
+    this.eventQueue.registerHandler('part_severed', (event: VisualEvent, onComplete: () => void) => {
+      const { partEid, x, y } = event.data as { partEid: number; partName: string; x: number; y: number };
+      const bodySprite = this.entitySprites.get(event.entityId);
+
+      // Create floor sprite for severed part
+      this.createEntitySprite(partEid, undefined, TEX.SEVERED_PART);
+
+      if (!bodySprite || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+
+      // Flash body white briefly
+      bodySprite.setTint(0xffffff);
+      this.time.delayedCall(150, () => {
+        bodySprite.clearTint();
+        onComplete();
+      });
+    });
+
+    // ── Part deactivated — brief dim on body ──
+    this.eventQueue.registerHandler('part_deactivated', (event: VisualEvent, onComplete: () => void) => {
+      const sprite = this.entitySprites.get(event.entityId);
+      if (!sprite || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+      sprite.setTint(0x666666);
+      this.time.delayedCall(100, () => {
+        sprite.clearTint();
+        onComplete();
+      });
+    });
+
+    // ── Part destroyed (on floor) — remove sprite ──
+    this.eventQueue.registerHandler('part_destroyed', (event: VisualEvent, onComplete: () => void) => {
+      this.destroyEntitySprite(event.entityId);
+      onComplete();
+    });
   }
 
   /** Remove a dead entity from world and visual layer. */
@@ -1099,6 +1180,15 @@ export class GameScene extends Scene {
       const idx = this.tileMap.idx(Position.x[eid], Position.y[eid]);
       this.tileMap.entityBlocksMovement[idx] = 0;
       this.tileMap.entityBlocksLight[idx] = 0;
+    }
+    // Clean up attached body parts when a creature dies
+    if (hasComponent(this.world, eid, Body)) {
+      const parts = getPartsOf(eid);
+      for (const partEid of parts) {
+        this.destroyEntitySprite(partEid);
+        removeEntity(this.world, partEid);
+      }
+      clearPartIndex(eid);
     }
     this.destroyEntitySprite(eid);
     this.sandbox.pinnedOverlays.delete(eid);
@@ -1175,7 +1265,15 @@ export class GameScene extends Scene {
     this.shipGraphLabels = [];
     this.sandbox.pinnedOverlays.clear();
 
-    // Remove all ECS entities
+    // Remove all ECS entities — clean up body parts first
+    const bodyEntities = query(this.world, [Body]);
+    for (const eid of [...bodyEntities]) {
+      const parts = getPartsOf(eid);
+      for (const partEid of parts) {
+        removeEntity(this.world, partEid);
+      }
+      clearPartIndex(eid);
+    }
     const allEntities = query(this.world, [Position]);
     for (const eid of [...allEntities]) {
       clearEntityAICache(eid);
@@ -1190,6 +1288,7 @@ export class GameScene extends Scene {
     this.currentRooms = shipResult.rooms;
     this.shipGraphData = shipResult.graph;
     console.log(`[dungeon] Regenerated ship with seed "${this.currentSeed}", arch="${this.currentArchitectureId}", ${shipResult.rooms.length} rooms`);
+    gameLog.clear();
 
     // ── Rebuild physics ──
     this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
@@ -1223,6 +1322,9 @@ export class GameScene extends Scene {
       attackDamage: playerSpecies?.attackDamage ?? 5,
       faction: playerSpecies?.faction ?? 'player',
     });
+    if (playerSpecies) {
+      spawnBodyForCreature(this.world, this.playerEid, playerSpecies, registry);
+    }
     Turn.energy[this.playerEid] = 100;
 
     // ── Nebula background ──
@@ -1886,6 +1988,8 @@ export class GameScene extends Scene {
       AI.searchBudget[eid] = 0;
       AI.cachedTargetX[eid] = -1;
       AI.cachedTargetY[eid] = -1;
+
+      spawnBodyForCreature(this.world, eid, species, registry);
 
       this.createEntitySprite(eid, species.id);
     }

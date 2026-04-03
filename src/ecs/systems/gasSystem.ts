@@ -13,6 +13,7 @@
  */
 import { query, hasComponent, addComponent } from 'bitecs';
 import { Position, Health, Dead } from '../components';
+import { applyDamage } from '../damage';
 import { getRegistry } from '../../data/loader';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
@@ -165,21 +166,10 @@ export function processGasSystem(
         const species = speciesId ? registry.species.get(speciesId) : null;
         if (!species?.spawnTags?.includes('organic')) continue;
 
-        Health.hp[eid] -= gasRules.toxicDamagePerTurn;
-        eventQueue.push({
-          type: 'hit_flash',
-          entityId: eid,
-          data: { damage: gasRules.toxicDamagePerTurn, source: 'toxic_gas' },
-        });
-
-        if (Health.hp[eid] <= 0) {
-          addComponent(world, eid, Dead);
-          eventQueue.push({
-            type: 'death',
-            entityId: eid,
-            data: { cause: 'toxic_gas' },
-          });
-        }
+        applyDamage(eid, gasRules.toxicDamagePerTurn, {
+          source: 'toxic_gas',
+          damageType: 'energy',
+        }, world, eventQueue);
         break; // one toxic gas hit per entity per turn
       }
     }

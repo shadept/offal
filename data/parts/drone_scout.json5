@@ -1,0 +1,63 @@
+// Scout Drone body parts — lightweight hover platform
+// Part HPs sum to 7 (matching species maxHp)
+// hitWeight reflects absolute part size (small drone — compact frame)
+{
+  parts: [
+    {
+      id: "drone_core",
+      name: "Drone Core",
+      type: "torso",
+      species: "drone_scout",
+      material: "steel",
+      maxHp: 2,
+      hitWeight: 8,
+      depth: "external",
+      woundEffect: "sparking",
+      detachedDecayRate: 0,
+      onDetach: null,
+      capacityContribution: ["structuralIntegrity"],
+    },
+    {
+      id: "drone_rotor",
+      name: "Rotor",
+      type: "rotor",
+      species: "drone_scout",
+      material: "steel",
+      maxHp: 1,
+      hitWeight: 4,
+      depth: "external",
+      woundEffect: "sparking",
+      detachedDecayRate: 0,
+      onDetach: null,
+      capacityContribution: ["mobility"],
+    },
+    {
+      id: "drone_sensors",
+      name: "Sensor Pod",
+      type: "sensor",
+      species: "drone_scout",
+      material: "steel",
+      maxHp: 1,
+      hitWeight: 2,
+      depth: "external",
+      woundEffect: "sparking",
+      detachedDecayRate: 0,
+      onDetach: null,
+      capacityContribution: ["consciousness"],
+    },
+    {
+      id: "drone_power_core",
+      name: "Micro Cell",
+      type: "organ",
+      species: "drone_scout",
+      material: "steel",
+      maxHp: 2,
+      hitWeight: 3,
+      depth: "internal",
+      woundEffect: "sparking",
+      detachedDecayRate: 0,
+      onDetach: { action: "explode", damage: 5, radius: 1, onlyViolent: true },
+      capacityContribution: ["circulation"],
+    },
+  ]
+}

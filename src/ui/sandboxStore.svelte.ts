@@ -26,6 +26,7 @@ export class SandboxStore {
   get active()           { this.#tick; return this.#ctrl.active; }
   get selectedTile()     { this.#tick; return this.#ctrl.selectedTile; }
   get selectedEntity()   { this.#tick; return this.#ctrl.selectedEntity; }
+  get selectedEntities() { this.#tick; return this.#ctrl.selectedEntities; }
   get activeTool()       { this.#tick; return this.#ctrl.activeTool; }
   get autoPlay()         { this.#tick; return this.#ctrl.autoPlay; }
   get autoPlaySpeed()    { this.#tick; return this.#ctrl.autoPlaySpeed; }

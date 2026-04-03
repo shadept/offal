@@ -20,6 +20,7 @@ import { TileMap } from '../../map/TileMap';
 import { getRegistry } from '../../data/loader';
 import { getClosedDoorAt, openDoorEntity, checkTeleport } from './movementSystem';
 import { getVisibleTiles } from '../../map/fov';
+import { applyDamage } from '../damage';
 import type { VisualEvent } from '../../types';
 import type { VisualEventQueue } from '../../visual/EventQueue';
 import { isTileOccupied } from './movementSystem';
@@ -143,11 +144,14 @@ function processEntity(
   eventQueue: VisualEventQueue,
   pendingTiles: Set<string>,
 ): void {
+  // Skip if killed during this turn (e.g., by another entity's attack earlier in the loop)
+  if (hasComponent(world, eid, Dead)) return;
+
   const state = AI.state[eid] as number;
   const targetEid = AI.targetEid[eid];
 
-  // Validate current target is still alive
-  if (targetEid >= 0 && (hasComponent(world, targetEid, Dead) || Health.hp[targetEid] <= 0)) {
+  // Validate current target is still alive (entity may have been removed between turns)
+  if (targetEid >= 0 && (!hasComponent(world, targetEid, Health) || hasComponent(world, targetEid, Dead) || Health.hp[targetEid] <= 0)) {
     AI.targetEid[eid] = -1;
     AI.state[eid] = AIState.WANDER;
     AI.lastKnownX[eid] = -1;
@@ -594,19 +598,11 @@ export function performAttack(
   eventQueue: VisualEventQueue,
 ): void {
   const damage = CombatStats.attackDamage[attacker] || 1;
-  const willKill = Health.hp[target] - damage <= 0;
-
-  Health.hp[target] -= damage;
-  eventQueue.push(
-    { type: 'hit_flash', entityId: target, data: { damage, attackerId: attacker } },
-  );
-
-  if (willKill) {
-    addComponent(world, target, Dead);
-    eventQueue.push(
-      { type: 'death', entityId: target, data: {} },
-    );
-  }
+  applyDamage(target, damage, {
+    source: 'melee',
+    attackerEid: attacker,
+    damageType: 'blunt',
+  }, world, eventQueue);
 }
 
 // ═══════════════════════════════════════════════════════════

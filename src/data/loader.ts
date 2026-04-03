@@ -3,7 +3,7 @@
  * All game content is data-driven; no hardcoded content in game logic.
  */
 import JSON5 from 'json5';
-import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, ShipClassData, ArchitectureData, ShipTypeData, RoomSizeData, DataRegistry } from '../types';
+import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, ShipClassData, ArchitectureData, ShipTypeData, RoomSizeData, PartData, DataRegistry } from '../types';
 
 // Vite glob imports — `?raw` imports file contents as strings
 const materialFiles = import.meta.glob('/data/materials/*.json5', {
@@ -67,6 +67,12 @@ const shipTypeFiles = import.meta.glob('/data/ship-types/*.json5', {
 });
 
 const roomSizeFiles = import.meta.glob('/data/room-sizes.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const partFiles = import.meta.glob('/data/parts/*.json5', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -235,6 +241,22 @@ function parseShipTypes(): Map<string, ShipTypeData> {
   return map;
 }
 
+function parseParts(): Map<string, PartData> {
+  const map = new Map<string, PartData>();
+  for (const [path, raw] of Object.entries(partFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string);
+      const list: PartData[] = parsed.parts ?? [parsed];
+      for (const part of list) {
+        if (part.id) map.set(part.id, part);
+      }
+    } catch (e) {
+      console.error(`Failed to parse part file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
 function parseRoomSizes(): { byType: Map<string, RoomSizeData>; defaultSize: { w: [number, number]; h: [number, number] } } {
   const byType = new Map<string, RoomSizeData>();
   let defaultSize: { w: [number, number]; h: [number, number] } = { w: [3, 6], h: [3, 6] };
@@ -269,6 +291,7 @@ export function loadData(): DataRegistry {
     tiles,
     tilesByIndex,
     species: parseSpecies(),
+    parts: parseParts(),
     maps: parseMaps(),
     factions: parseFactions(),
     physicsRules: parsePhysicsRules(),
@@ -284,6 +307,7 @@ export function loadData(): DataRegistry {
     `[data] Loaded ${registry.materials.size} materials, ` +
     `${registry.tiles.size} tiles, ` +
     `${registry.species.size} species, ` +
+    `${registry.parts.size} parts, ` +
     `${registry.factions.size} factions, ` +
     `${registry.maps.size} maps, ` +
     `${registry.physicsRules.rules.length} physics rules, ` +

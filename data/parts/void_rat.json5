@@ -1,0 +1,49 @@
+// Void Rat body parts — small quadruped vermin
+// Part HPs sum to 6 (matching species maxHp)
+// hitWeight reflects absolute part size (tiny — a rat leg on a human would rarely get hit)
+{
+  parts: [
+    {
+      id: "rat_head",
+      name: "Rat Head",
+      type: "head",
+      species: "void_rat",
+      material: "organic",
+      maxHp: 1,
+      hitWeight: 2,
+      depth: "external",
+      woundEffect: "bleeding",
+      detachedDecayRate: 3,
+      onDetach: null,
+      capacityContribution: ["consciousness"],
+    },
+    {
+      id: "rat_torso",
+      name: "Rat Body",
+      type: "torso",
+      species: "void_rat",
+      material: "organic",
+      maxHp: 2,
+      hitWeight: 6,
+      depth: "external",
+      woundEffect: "bleeding",
+      detachedDecayRate: 2,
+      onDetach: null,
+      capacityContribution: ["structuralIntegrity", "circulation"],
+    },
+    {
+      id: "rat_leg",
+      name: "Rat Leg",
+      type: "leg",
+      species: "void_rat",
+      material: "organic",
+      maxHp: 1,
+      hitWeight: 2,
+      depth: "external",
+      woundEffect: "bleeding",
+      detachedDecayRate: 3,
+      onDetach: null,
+      capacityContribution: ["mobility"],
+    },
+  ]
+}

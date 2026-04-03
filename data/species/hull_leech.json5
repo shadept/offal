@@ -7,6 +7,18 @@
   color: "#8844aa",
   spawnTags: ["organic", "parasite"],
   faction: "creatures",
-  maxHp: 20,
+  maxHp: 14,
   attackDamage: 3,
+
+  parts: [
+    { id: "mouth",   role: "mouth",   position: "front",    default: "leech_mouth" },
+    { id: "segment", role: "segment", position: "front",    default: "leech_segment" },
+    { id: "eyes",    role: "sensor",  position: "top",      default: "leech_eyes" },
+    { id: "heart",   role: "organ",   position: "internal", default: "leech_heart" },
+    { id: "stomach", role: "organ",   position: "internal", default: "leech_stomach" },
+  ],
+
+  compatibleWith: ["organic"],
+  requiredParts: ["heart", "mouth"],
+  locomotionBaseline: "serpentine",
 }

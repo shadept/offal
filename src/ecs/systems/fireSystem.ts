@@ -11,6 +11,7 @@
 import { query, hasComponent, addComponent } from 'bitecs';
 import { Position, Health, Dead, Door } from '../components';
 import { getRegistry } from '../../data/loader';
+import { applyDamage } from '../damage';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
 import type { VisualEventQueue } from '../../visual/EventQueue';
@@ -279,22 +280,10 @@ function damageEntitiesOnTile(
   for (const eid of entities) {
     if (hasComponent(world, eid, Dead)) continue;
     if (Position.x[eid] !== x || Position.y[eid] !== y) continue;
+    // Skip doors — handled separately by damageDoorOnTile
+    if (hasComponent(world, eid, Door)) continue;
 
-    Health.hp[eid] -= damage;
-    eventQueue.push({
-      type: 'hit_flash',
-      entityId: eid,
-      data: { damage, source: 'fire' },
-    });
-
-    if (Health.hp[eid] <= 0) {
-      addComponent(world, eid, Dead);
-      eventQueue.push({
-        type: 'death',
-        entityId: eid,
-        data: { cause: 'fire' },
-      });
-    }
+    applyDamage(eid, damage, { source: 'fire', damageType: 'energy' }, world, eventQueue);
   }
 }
 

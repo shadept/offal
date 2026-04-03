@@ -8,5 +8,20 @@
   spawnTags: ["mechanical", "security"],
   faction: "security",
   maxHp: 30,
-  attackDamage: 8,
+  attackDamage: 6,
+
+  parts: [
+    { id: "head",     role: "head",   position: "top",      default: "bot_head" },
+    { id: "torso",    role: "torso",  position: "front",    default: "bot_torso" },
+    { id: "arm_l",    role: "arm",    position: "left",     default: "bot_arm" },
+    { id: "arm_r",    role: "arm",    position: "right",    default: "bot_arm" },
+    { id: "leg_l",    role: "leg",    position: "left",     default: "bot_leg" },
+    { id: "leg_r",    role: "leg",    position: "right",    default: "bot_leg" },
+    { id: "sensors",  role: "sensor", position: "top",      default: "bot_sensors" },
+    { id: "power_core", role: "organ", position: "internal", default: "bot_power_core" },
+  ],
+
+  compatibleWith: ["metal"],
+  requiredParts: ["power_core", "head"],
+  locomotionBaseline: "biped",
 }

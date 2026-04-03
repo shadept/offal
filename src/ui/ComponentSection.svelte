@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SandboxStore } from './sandboxStore.svelte';
-  import type { ComponentInspector } from '../sandbox/debugOverlays';
+  import type { ComponentInspector, FieldAction } from '../sandbox/debugOverlays';
 
   let { store, inspector, eid }: {
     store: SandboxStore;
@@ -8,11 +8,27 @@
     eid: number;
   } = $props();
 
-  let collapsed = $state(false);
+  let collapsed = $state(true);
+
+  let actions = $derived(
+    inspector.getActions
+      ? inspector.getActions(store.ctrl.getWorld(), eid)
+      : []
+  );
+
+  function actionsForField(field: string): FieldAction[] {
+    return actions.filter(a => a.field === field);
+  }
 
   function commitField(label: string, value: string) {
     inspector.setField?.(store.ctrl.getWorld(), eid, label, value);
     store.ctrl.emit('field_edited', { eid, component: inspector.name, label });
+  }
+
+  function runAction(action: FieldAction) {
+    if (action.actionType && action.data) {
+      store.ctrl.runFieldAction(action.actionType, action.data);
+    }
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -29,7 +45,7 @@
 </div>
 
 <!-- Debug overlay pin toggle -->
-{#if inspector.hasOverlay}
+{#if !collapsed && inspector.hasOverlay}
   <label class="sb-debug-label">
     <input
       type="checkbox"
@@ -57,6 +73,9 @@
         {:else}
           <span class="sb-inspect-value">{value}</span>
         {/if}
+        {#each actionsForField(label) as action}
+          <button class="sb-action-btn" onclick={() => runAction(action)}>{action.label}</button>
+        {/each}
       </div>
     {/each}
   </div>
@@ -121,5 +140,21 @@
   .field-input:focus {
     border-color: #e94560;
     outline: none;
+  }
+  .sb-action-btn {
+    background: #1a2030;
+    border: 1px solid #4466aa;
+    color: #6699cc;
+    font-family: monospace;
+    font-size: 0.6rem;
+    padding: 0.05rem 0.35rem;
+    cursor: pointer;
+    border-radius: 2px;
+    margin-left: auto;
+  }
+  .sb-action-btn:hover {
+    background: #253050;
+    border-color: #6699cc;
+    color: #aaccee;
   }
 </style>

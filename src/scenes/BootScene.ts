@@ -26,6 +26,7 @@ export const TEX = {
   GAS_OVERLAY: 'tile_gas_overlay',
   EXPLOSION_PARTICLE: 'particle_explosion',
   NEBULA: 'bg_nebula',
+  SEVERED_PART: 'entity_severed_part',
 } as const;
 
 /** Get the texture key for a species. Convention: `entity_{speciesId}` */
@@ -346,6 +347,18 @@ export class BootScene extends Scene {
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, 8, 8);
     }, 8, 8);
+
+    // ── Severed part (small reddish lump on objects layer) ──
+    this.generateTile(TEX.SEVERED_PART, (ctx) => {
+      ctx.fillStyle = '#883333';
+      ctx.beginPath();
+      ctx.ellipse(S / 2, S / 2, S * 0.22, S * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#aa4444';
+      ctx.beginPath();
+      ctx.ellipse(S / 2 - 1, S / 2 - 1, S * 0.12, S * 0.1, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    });
 
     // ── Gas overlay (wispy, semi-transparent, tinted per-material at runtime) ──
     this.generateTile(TEX.GAS_OVERLAY, (ctx) => {
