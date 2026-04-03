@@ -1,0 +1,17 @@
+{
+  id: "colony",
+  name: "Colony Ship",
+  sizeClass: "massive",
+  deck: {
+    corridor: [8, 14],
+    crew_quarters: [8, 12],
+    hydroponics: [4, 8],
+    medical: [2, 4],
+    cantina: [3, 5],
+    cargo: [4, 8],
+    hangar: [1, 3],
+    storage: [4, 6],
+    weapons: [2, 4],
+  },
+  engines: [4, 8],
+}

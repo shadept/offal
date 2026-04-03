@@ -21,7 +21,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed';
+export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {
@@ -193,6 +193,44 @@ export interface ShipClassData {
   shape: string;
 }
 
+/** Architecture layout parameters loaded from data/architectures.json5 */
+export interface ArchitectureLayout {
+  type: 'SPINE' | 'RADIAL' | 'SEGMENTED' | 'SCAFFOLD' | 'FLOATING';
+  crossProb: number;
+  attachDirs?: string[];
+  symmetryBias?: number;
+  lateralBias?: number;
+  scaffoldDirs?: string[];
+  scaffoldExtra?: [number, number];
+  floatDist?: [number, number];
+  engineFloatDist?: [number, number];
+}
+
+/** Architecture definition loaded from data/architectures.json5 */
+export interface ArchitectureData {
+  id: string;
+  name: string;
+  layout: ArchitectureLayout;
+  weaponExterior: string;
+  weaponInterior: string;
+}
+
+/** Ship type definition loaded from data/ship-types.json5 */
+export interface ShipTypeData {
+  id: string;
+  name: string;
+  sizeClass: 'tiny' | 'small' | 'medium' | 'large' | 'massive';
+  deck: Record<string, [number, number]>;
+  engines: [number, number];
+}
+
+/** Room size definition loaded from data/room-sizes.json5 */
+export interface RoomSizeData {
+  type: string;
+  w: [number, number];
+  h: [number, number];
+}
+
 /** Data registry — holds all loaded JSON5 data */
 export interface DataRegistry {
   materials: Map<string, MaterialData>;
@@ -204,4 +242,8 @@ export interface DataRegistry {
   physicsRules: PhysicsRulesData;
   rooms: Map<string, RoomData>;
   shipClasses: Map<string, ShipClassData>;
+  architectures: Map<string, ArchitectureData>;
+  shipTypes: Map<string, ShipTypeData>;
+  roomSizes: Map<string, RoomSizeData>;
+  defaultRoomSize: { w: [number, number]; h: [number, number] };
 }

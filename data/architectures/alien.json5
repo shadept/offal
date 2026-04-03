@@ -1,0 +1,12 @@
+{
+  // Alien architecture — dense radial packing toward center (saucer shape).
+  id: "alien",
+  name: "Alien (Radial / Saucer)",
+  layout: {
+    type: "RADIAL",
+    crossProb: 0.45,
+    attachDirs: ["N", "S", "E", "W"],
+  },
+  weaponExterior: "energy_emitter",
+  weaponInterior: "energy_emitter",
+}

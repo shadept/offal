@@ -1,0 +1,17 @@
+{
+  id: "military",
+  name: "Military Cruiser",
+  sizeClass: "large",
+  deck: {
+    corridor: [5, 10],
+    weapons: [6, 10],
+    shields: [2, 3],
+    security: [1, 2],
+    armory: [2, 3],
+    crew_quarters: [2, 4],
+    medical: [1, 2],
+    cantina: [1, 1],
+    sensors: [1, 2],
+  },
+  engines: [3, 6],
+}

@@ -1,0 +1,17 @@
+{
+  id: "dreadnought",
+  name: "Dreadnought",
+  sizeClass: "massive",
+  deck: {
+    corridor: [12, 18],
+    weapons: [10, 16],
+    shields: [4, 6],
+    security: [4, 6],
+    armory: [4, 6],
+    crew_quarters: [6, 9],
+    medical: [2, 4],
+    hangar: [2, 5],
+    sensors: [2, 4],
+  },
+  engines: [6, 10],
+}

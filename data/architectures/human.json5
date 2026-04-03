@@ -1,0 +1,13 @@
+{
+  // Human architecture — symmetric spine with lateral branching.
+  id: "human",
+  name: "Human (Symmetric Spine)",
+  layout: {
+    type: "SPINE",
+    crossProb: 0.25,
+    symmetryBias: 0.3,
+    attachDirs: ["E", "W", "N", "S"],
+  },
+  weaponExterior: "turret",
+  weaponInterior: "missile_bay",
+}

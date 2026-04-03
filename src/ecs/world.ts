@@ -6,7 +6,7 @@ import {
   addEntity,
   addComponent,
 } from 'bitecs';
-import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, Health, Faction, CombatStats, Door } from './components';
+import { Position, Renderable, Turn, FOV, PlayerTag, BlocksMovement, Health, Faction, CombatStats, Door, Teleporter } from './components';
 import { getFactionIndex } from './factions';
 
 export type GameWorld = ReturnType<typeof createGameWorld>;
@@ -24,6 +24,7 @@ export const SpriteIndex = {
   DOOR_CLOSED: 3,
   DOOR_OPEN: 4,
   NPC: 5,
+  TELEPORTER: 6,
 } as const;
 
 export interface SpawnDoorOpts {
@@ -54,6 +55,28 @@ export function spawnDoor(world: object, opts: SpawnDoorOpts): number {
   Health.maxHp[eid] = hp;
 
   return eid;
+}
+
+/** Spawn a paired teleporter. Call twice with the returned EIDs to link them. */
+export function spawnTeleporter(world: object, x: number, y: number): number {
+  const eid = addEntity(world);
+  addComponent(world, eid, Position);
+  addComponent(world, eid, Renderable);
+  addComponent(world, eid, Teleporter);
+
+  Position.x[eid] = x;
+  Position.y[eid] = y;
+  Renderable.spriteIndex[eid] = SpriteIndex.TELEPORTER;
+  Renderable.layer[eid] = 1; // object layer
+  Teleporter.linkedEid[eid] = -1;
+
+  return eid;
+}
+
+/** Link two teleporter entities to each other. */
+export function linkTeleporters(eidA: number, eidB: number): void {
+  Teleporter.linkedEid[eidA] = eidB;
+  Teleporter.linkedEid[eidB] = eidA;
 }
 
 export interface SpawnPlayerOpts {

@@ -1,0 +1,41 @@
+{
+  // Room interior tile dimensions by room type.
+  // Each entry defines base [minW, maxW, minH, maxH].
+  // The generator adjusts these based on ship sizeClass:
+  //   tiny:    clamp(base - 2, min 2)
+  //   small:   base as-is
+  //   medium:  base as-is
+  //   large:   base + 1
+  //   massive: base + [2, 4]
+
+  roomSizes: [
+    { type: "bridge",        w: [4, 7],  h: [3, 6] },
+    { type: "corridor",      w: [2, 4],  h: [2, 5] },
+    { type: "cargo",         w: [6, 10], h: [4, 8] },
+    { type: "crew_quarters", w: [4, 7],  h: [3, 5] },
+    { type: "cantina",       w: [5, 8],  h: [4, 6] },
+    { type: "lab",           w: [4, 6],  h: [4, 6] },
+    { type: "armory",        w: [3, 5],  h: [3, 5] },
+    { type: "cells",         w: [5, 8],  h: [3, 5] },
+    { type: "refinery",      w: [6, 9],  h: [5, 8] },
+    { type: "drill",         w: [3, 5],  h: [6, 10] },
+    { type: "weapons",       w: [4, 6],  h: [4, 6] },
+    { type: "turret",        w: [4, 6],  h: [4, 6] },
+    { type: "missile_bay",   w: [4, 6],  h: [4, 6] },
+    { type: "torpedo_tube",  w: [4, 6],  h: [4, 6] },
+    { type: "energy_emitter",w: [4, 6],  h: [4, 6] },
+    { type: "bio_artillery", w: [4, 6],  h: [4, 6] },
+    { type: "shields",       w: [5, 7],  h: [4, 6] },
+    { type: "security",      w: [4, 6],  h: [4, 6] },
+    { type: "medical",       w: [4, 6],  h: [3, 5] },
+    { type: "sensors",       w: [3, 6],  h: [3, 6] },
+    { type: "storage",       w: [4, 6],  h: [3, 5] },
+    { type: "hydroponics",   w: [6, 10], h: [4, 7] },
+    { type: "hangar",        w: [8, 14], h: [6, 10] },
+    { type: "engine",        w: [4, 7],  h: [4, 7] },
+    { type: "engineering",   w: [4, 7],  h: [4, 7] },
+  ],
+
+  // Default for any type not listed above
+  defaultSize: { w: [3, 6], h: [3, 6] },
+}

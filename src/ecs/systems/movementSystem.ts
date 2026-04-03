@@ -7,7 +7,7 @@
  * Door interactions use entity-based doors with tile overlay projection.
  */
 import { query, hasComponent } from 'bitecs';
-import { Position, BlocksMovement, Dead, Door, Renderable } from '../components';
+import { Position, BlocksMovement, Dead, Door, Renderable, Teleporter } from '../components';
 import { TileMap } from '../../map/TileMap';
 import { SpriteIndex } from '../world';
 import type { VisualEventQueue } from '../../visual/EventQueue';
@@ -18,10 +18,75 @@ const MOVE_COST = 100;
 /** Cost to open a door */
 const DOOR_COST = 100;
 
+/** Cost to use a teleporter */
+const TELEPORT_COST = 100;
+
 export interface MoveResult {
   moved: boolean;
   cost: number;
   openedDoor: boolean;
+  teleported: boolean;
+}
+
+/** Find a teleporter entity at (x, y) that has a valid linked partner. */
+function getTeleporterAt(x: number, y: number, world: object): number {
+  for (const eid of query(world, [Position, Teleporter])) {
+    if (Position.x[eid] === x && Position.y[eid] === y && Teleporter.linkedEid[eid] >= 0) {
+      return eid;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Check if an entity just stepped onto a teleporter and warp it.
+ * Call this after ANY entity moves (player, AI, projectile).
+ * @param eid       The entity that moved
+ * @param fromX/Y   Where it came from (to detect "stepping onto" vs "already on")
+ * @param map       TileMap for blocked checks
+ * @param world     ECS world
+ * @param eventQueue Optional — if provided, enqueues a move visual event for the warp
+ * @returns The destination {x, y} if teleported, or null
+ */
+export function checkTeleport(
+  eid: number,
+  fromX: number,
+  fromY: number,
+  map: TileMap,
+  world: object,
+  eventQueue?: VisualEventQueue,
+): { x: number; y: number } | null {
+  const curX = Position.x[eid];
+  const curY = Position.y[eid];
+
+  const padEid = getTeleporterAt(curX, curY, world);
+  if (padEid < 0) return null;
+
+  // Don't re-teleport if we were already on this pad
+  if (fromX === curX && fromY === curY) return null;
+
+  const destEid = Teleporter.linkedEid[padEid];
+  if (destEid < 0) return null;
+
+  const destX = Position.x[destEid];
+  const destY = Position.y[destEid];
+
+  // Don't teleport if destination is blocked
+  if (map.blocksMovement(destX, destY)) return null;
+  if (isTileOccupied(destX, destY, eid, world)) return null;
+
+  Position.x[eid] = destX;
+  Position.y[eid] = destY;
+
+  if (eventQueue) {
+    eventQueue.push({
+      type: 'teleport',
+      entityId: eid,
+      data: { fromX: curX, fromY: curY, toX: destX, toY: destY },
+    });
+  }
+
+  return { x: destX, y: destY };
 }
 
 /** Check if a tile has another living entity on it. */
@@ -105,12 +170,12 @@ export function tryMove(
 
   // Wait action (no movement)
   if (dx === 0 && dy === 0) {
-    return { moved: false, cost: MOVE_COST, openedDoor: false };
+    return { moved: false, cost: MOVE_COST, openedDoor: false, teleported: false };
   }
 
   // Check bounds
   if (!map.inBounds(toX, toY)) {
-    return { moved: false, cost: 0, openedDoor: false };
+    return { moved: false, cost: 0, openedDoor: false, teleported: false };
   }
 
   // Check if tile blocks movement (includes entity overlay — closed doors)
@@ -119,14 +184,14 @@ export function tryMove(
     const doorEid = getClosedDoorAt(toX, toY, world);
     if (doorEid >= 0) {
       openDoorEntity(doorEid, eid, map, eventQueue);
-      return { moved: false, cost: DOOR_COST, openedDoor: true };
+      return { moved: false, cost: DOOR_COST, openedDoor: true, teleported: false };
     }
-    return { moved: false, cost: 0, openedDoor: false };
+    return { moved: false, cost: 0, openedDoor: false, teleported: false };
   }
 
   // Check if tile is occupied by another entity
   if (isTileOccupied(toX, toY, eid, world)) {
-    return { moved: false, cost: 0, openedDoor: false };
+    return { moved: false, cost: 0, openedDoor: false, teleported: false };
   }
 
   // Commit position immediately, then enqueue visual event
@@ -138,5 +203,11 @@ export function tryMove(
     data: { fromX, fromY, toX, toY },
   });
 
-  return { moved: true, cost: MOVE_COST, openedDoor: false };
+  // Check for teleporter at destination
+  const teleported = checkTeleport(eid, fromX, fromY, map, world, eventQueue);
+  if (teleported) {
+    return { moved: true, cost: TELEPORT_COST, openedDoor: false, teleported: true };
+  }
+
+  return { moved: true, cost: MOVE_COST, openedDoor: false, teleported: false };
 }

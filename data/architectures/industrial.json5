@@ -1,0 +1,16 @@
+{
+  // Industrial architecture — chaotic corridor scaffold with rooms on edges.
+  // scaffoldDirs biases south/east/west for sprawling growth.
+  // scaffoldExtra injects additional corridors beyond the manifest count.
+  id: "industrial",
+  name: "Industrial (Chaotic Scaffold)",
+  layout: {
+    type: "SCAFFOLD",
+    crossProb: 0.85,
+    scaffoldDirs: ["N", "S", "E", "W", "S", "E", "W"],
+    scaffoldExtra: [5, 12],
+    attachDirs: ["N", "S", "E", "W"],
+  },
+  weaponExterior: "turret",
+  weaponInterior: "missile_bay",
+}

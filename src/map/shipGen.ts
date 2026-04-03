@@ -1,39 +1,71 @@
 /**
- * Ship Generator — graph-based ship layout generation.
+ * Ship Generator — graph-based procedural ship generation.
+ *
+ * Implements a seed-growth algorithm with 5 architecture layouts:
+ *   SPINE     — central corridor spine with symmetric branching (Human)
+ *   RADIAL    — dense circular packing toward center (Alien)
+ *   SEGMENTED — distinct body clusters linked by corridors (Insectoid)
+ *   SCAFFOLD  — chaotic corridor maze with rooms on edges (Industrial)
+ *   FLOATING  — disjointed islands connected by teleporters (Monolithic)
  *
  * Pipeline:
- *   1. Graph:    Read ship class data → room nodes + adjacency edges
- *   2. Manifest: Size each room from function/size constraints
- *   3. Pack:     Iteratively place rooms compactly, route corridors
- *   4. Carve:    Write rooms/corridors/walls to tilemap
+ *   1. Deck Manifest  — roll room counts from ship type data
+ *   2. Seed Placement — bridge at origin
+ *   3. Layout Growth  — architecture-specific room attachment
+ *   4. Engine Placement — stern-biased engine modules
+ *   5. Post-Processing — weapon LOS mutation, cross-connections
+ *   6. Tile Carving   — rooms/corridors/hull → TileMap
  *
- * Rooms are packed tight — connected rooms share walls where possible.
- * Corridors are emergent: only created where rooms can't be adjacent.
+ * All content is data-driven from:
+ *   data/ship-types.json5    — deck manifests per ship type
+ *   data/architectures.json5 — layout algorithm params
+ *   data/room-sizes.json5    — room dimensions per type + size class
  */
 import { TileMap } from './TileMap';
 import { TileType } from '../types';
-import type { ShipClassData, ShipRoomDef } from '../types';
+import { SeededRNG } from '../utils/rng';
+import { getRegistry } from '../data/loader';
+import type { ArchitectureData, ArchitectureLayout, ShipTypeData, RoomSizeData } from '../types';
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════
 
 export interface RoomNode {
-  id: string;
-  function: string;
-  /** Interior dimensions (not including walls) */
-  w: number;
-  h: number;
-  /** Placed position (top-left of interior, set during packing) */
+  id: number;
+  /** Room type: 'bridge', 'corridor', 'cargo', 'weapons', etc. */
+  type: string;
+  /** Display name: 'Command', 'Access', 'Cargo Bay', etc. */
+  name: string;
+  /** Top-left x of interior floor area */
   x: number;
+  /** Top-left y of interior floor area */
   y: number;
-  extremity: boolean;
+  /** Interior width in tiles */
+  w: number;
+  /** Interior height in tiles */
+  h: number;
+  /** Facing direction */
+  dir: string;
+}
+
+export interface ShipEdge {
+  source: number;
+  target: number;
+  type: 'physical' | 'teleport';
 }
 
 export interface ShipGraph {
-  rooms: RoomNode[];
-  /** Adjacency edges as pairs of room IDs */
-  edges: [string, string][];
+  nodes: RoomNode[];
+  edges: ShipEdge[];
+  shipType: string;
+  architecture: string;
+}
+
+/** A pair of teleporter pads — stepping on one warps to the other. */
+export interface TeleporterPair {
+  a: { x: number; y: number };
+  b: { x: number; y: number };
 }
 
 export interface GeneratedShipResult {
@@ -41,260 +73,742 @@ export interface GeneratedShipResult {
   graph: ShipGraph;
   playerSpawn: { x: number; y: number };
   doors: { x: number; y: number }[];
+  teleporters: TeleporterPair[];
   /** Room info for entity spawning / room functions */
-  roomCenters: { id: string; function: string; x: number; y: number }[];
+  roomCenters: { id: number; type: string; name: string; x: number; y: number }[];
 }
 
 // ═══════════════════════════════════════════════════════════
-// SEEDED RNG (same as dungeonGen)
+// ROOM DISPLAY NAMES
 // ═══════════════════════════════════════════════════════════
 
-class SeededRNG {
-  private s: number;
-  readonly seed: string;
-
-  constructor(seed?: string) {
-    this.seed = seed ?? Math.random().toString(36).slice(2, 10);
-    this.s = this.hashSeed(this.seed);
-  }
-
-  private hashSeed(str: string): number {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-      h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-    }
-    return h >>> 0 || 1;
-  }
-
-  next(): number {
-    this.s ^= this.s << 13;
-    this.s ^= this.s >> 17;
-    this.s ^= this.s << 5;
-    return (this.s >>> 0) / 4294967296;
-  }
-
-  intRange(min: number, max: number): number {
-    return min + Math.floor(this.next() * (max - min + 1));
-  }
-
-  chance(p: number): boolean {
-    return this.next() < p;
-  }
-
-  shuffle<T>(arr: T[]): T[] {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(this.next() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
-// SIZE CONSTRAINTS
-// ═══════════════════════════════════════════════════════════
-
-/** Interior dimensions (w, h) ranges by size category */
-const SIZE_RANGES: Record<string, { minW: number; maxW: number; minH: number; maxH: number }> = {
-  small:  { minW: 3, maxW: 4, minH: 3, maxH: 4 },
-  medium: { minW: 4, maxW: 6, minH: 4, maxH: 6 },
-  large:  { minW: 6, maxW: 8, minH: 6, maxH: 8 },
+const ROOM_DISPLAY_NAMES: Record<string, string> = {
+  bridge: 'Command',
+  corridor: 'Access',
+  cargo: 'Cargo Bay',
+  crew_quarters: 'Quarters',
+  cantina: 'Mess Hall',
+  lab: 'Science Lab',
+  armory: 'Armory',
+  cells: 'Cell Block',
+  refinery: 'Refinery',
+  drill: 'Drill Array',
+  weapons: 'Turret',
+  turret: 'Turret',
+  missile_bay: 'Missile Silo',
+  torpedo_tube: 'Torpedo Bay',
+  energy_emitter: 'Emitter Array',
+  bio_artillery: 'Artillery Sac',
+  shields: 'Shield Gen',
+  security: 'Security',
+  medical: 'Medbay',
+  sensors: 'Sensors',
+  storage: 'Storage',
+  hydroponics: 'Hydroponics',
+  hangar: 'Hangar Bay',
+  engine: 'Drive',
+  engineering: 'Engineering',
 };
 
+function displayName(type: string): string {
+  return ROOM_DISPLAY_NAMES[type] ?? type;
+}
+
 // ═══════════════════════════════════════════════════════════
-// STEP 1 & 2: GRAPH + MANIFEST
+// ROOM CONFIG (size from data)
 // ═══════════════════════════════════════════════════════════
 
-function buildGraph(shipClass: ShipClassData, rng: SeededRNG): ShipGraph {
-  const rooms: RoomNode[] = [];
+interface RoomConfig {
+  w: number;
+  h: number;
+  type: string;
+  name: string;
+}
 
-  for (const def of shipClass.rooms) {
-    const range = SIZE_RANGES[def.size] ?? SIZE_RANGES.medium;
-    const w = rng.intRange(range.minW, range.maxW);
-    const h = rng.intRange(range.minH, range.maxH);
-    rooms.push({
-      id: def.function,
-      function: def.function,
-      w,
-      h,
-      x: 0,
-      y: 0,
-      extremity: def.extremity ?? false,
-    });
-  }
+function getRoomConfig(type: string, sizeClass: string, rng: SeededRNG): RoomConfig {
+  const registry = getRegistry();
+  const sizeData = registry.roomSizes.get(type);
+  const base = sizeData ?? { w: registry.defaultRoomSize.w, h: registry.defaultRoomSize.h } as Pick<RoomSizeData, 'w' | 'h'>;
+
+  const scaleW = (min: number, max: number): number => {
+    switch (sizeClass) {
+      case 'tiny': return Math.max(2, rng.int(min - 2, max - 2));
+      case 'large': return rng.int(min + 1, max + 1);
+      case 'massive': return rng.int(min + 2, max + 4);
+      default: return rng.int(min, max);
+    }
+  };
+  const scaleH = scaleW; // same scaling logic
 
   return {
-    rooms,
-    edges: [...shipClass.connections],
+    w: scaleW(base.w[0], base.w[1]),
+    h: scaleH(base.h[0], base.h[1]),
+    type,
+    name: displayName(type),
   };
 }
 
 // ═══════════════════════════════════════════════════════════
-// STEP 3: ITERATIVE PACKING
+// DECK MANIFEST (from data)
 // ═══════════════════════════════════════════════════════════
 
-/** Directions to try attaching a room to an existing room's wall */
-const ATTACH_DIRS = [
-  { dx: 1, dy: 0, label: 'east' },
-  { dx: -1, dy: 0, label: 'west' },
-  { dx: 0, dy: 1, label: 'south' },
-  { dx: 0, dy: -1, label: 'north' },
-] as const;
-
-/** Check if two placed rooms overlap (including their walls) */
-function roomsOverlap(a: RoomNode, b: RoomNode): boolean {
-  // Include 1-tile wall border around each room
-  const ax1 = a.x - 1, ay1 = a.y - 1, ax2 = a.x + a.w, ay2 = a.y + a.h;
-  const bx1 = b.x - 1, by1 = b.y - 1, bx2 = b.x + b.w, by2 = b.y + b.h;
-  return ax1 < bx2 && ax2 > bx1 && ay1 < by2 && ay2 > by1;
+interface DeckManifest {
+  rooms: string[];    // non-corridor room types to place
+  corridors: number;  // corridor count
+  engines: number;    // engine count
 }
 
-/** Check if a room overlaps any already-placed rooms (allowing shared walls
- *  between the room and its intended neighbor). */
-function hasCollision(room: RoomNode, placed: RoomNode[], neighborId?: string): boolean {
-  for (const p of placed) {
-    if (p.id === neighborId) continue; // Allow overlap check to be lenient with neighbor
-    if (roomsOverlap(room, p)) return true;
+function getDeckManifest(shipType: ShipTypeData, rng: SeededRNG): DeckManifest {
+  const rooms: string[] = [];
+  let corridors = 0;
+
+  for (const [type, [min, max]] of Object.entries(shipType.deck)) {
+    const count = rng.int(min, max);
+    for (let i = 0; i < count; i++) {
+      if (type === 'corridor') corridors++;
+      else rooms.push(type);
+    }
+  }
+
+  rng.shuffle(rooms);
+  const engines = rng.int(shipType.engines[0], shipType.engines[1]);
+
+  return { rooms, corridors, engines };
+}
+
+// ═══════════════════════════════════════════════════════════
+// CORE: COLLISION DETECTION
+// ═══════════════════════════════════════════════════════════
+
+/** Check if placing a room at (x, y) with size (w, h) collides with any
+ *  existing node. Includes 1-tile wall border in the check.
+ *  Optionally skip a specific node (the attachment parent). */
+function checkCollision(
+  nodes: RoomNode[],
+  x: number, y: number, w: number, h: number,
+  skipId?: number,
+): boolean {
+  for (const n of nodes) {
+    if (n.id === skipId) continue;
+    // AABB including 1-tile wall borders
+    if (
+      x - 1 < n.x + n.w + 1 &&
+      x + w + 1 > n.x - 1 &&
+      y - 1 < n.y + n.h + 1 &&
+      y + h + 1 > n.y - 1
+    ) return true;
   }
   return false;
 }
 
-/** Try to attach room B adjacent to room A along a shared wall.
- *  Returns the position for B, or null if it doesn't fit. */
+/** Expanded collision check for FLOATING placement — the buffer zone
+ *  is added only to the NEW room (not existing rooms), ensuring modules
+ *  maintain a minimum gap without creating an impossibly large exclusion. */
+function checkCollisionExpanded(
+  nodes: RoomNode[],
+  x: number, y: number, w: number, h: number,
+  buffer: number,
+): boolean {
+  for (const n of nodes) {
+    if (
+      x - buffer < n.x + n.w &&
+      x + w + buffer > n.x &&
+      y - buffer < n.y + n.h &&
+      y + h + buffer > n.y
+    ) return true;
+  }
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CORE: ATTACHMENT
+// ═══════════════════════════════════════════════════════════
+
+const DIR_OFFSETS: Record<string, { dx: number; dy: number }> = {
+  N: { dx: 0, dy: -1 },
+  S: { dx: 0, dy: 1 },
+  E: { dx: 1, dy: 0 },
+  W: { dx: -1, dy: 0 },
+};
+
+/** Try to attach a new room flush against a parent room's edge.
+ *  Returns the new node or null if blocked. */
 function tryAttach(
-  a: RoomNode,
-  b: RoomNode,
-  dir: typeof ATTACH_DIRS[number],
-  placed: RoomNode[],
+  nodes: RoomNode[],
+  edges: ShipEdge[],
+  parent: RoomNode,
+  config: RoomConfig,
+  direction: string,
   rng: SeededRNG,
-): { x: number; y: number } | null {
-  // Calculate where B goes when attached to A in this direction
-  let bx: number, by: number;
+): RoomNode | null {
+  const { w, h, type, name } = config;
+  let nx: number, ny: number;
 
-  if (dir.dx === 1) {
-    // B goes east of A: B.x = A.x + A.w + 1 (shared wall)
-    bx = a.x + a.w + 1;
-    by = a.y + rng.intRange(-1, Math.max(0, a.h - b.h + 1));
-  } else if (dir.dx === -1) {
-    // B goes west of A
-    bx = a.x - b.w - 1;
-    by = a.y + rng.intRange(-1, Math.max(0, a.h - b.h + 1));
-  } else if (dir.dy === 1) {
-    // B goes south of A
-    bx = a.x + rng.intRange(-1, Math.max(0, a.w - b.w + 1));
-    by = a.y + a.h + 1;
-  } else {
-    // B goes north of A
-    bx = a.x + rng.intRange(-1, Math.max(0, a.w - b.w + 1));
-    by = a.y - b.h - 1;
+  // Place new room so it shares a wall with parent
+  // The 1-tile gap between interiors = shared wall
+  if (direction === 'N') {
+    nx = parent.x + Math.floor((parent.w - w) / 2);
+    ny = parent.y - h - 1;
+  } else if (direction === 'S') {
+    nx = parent.x + Math.floor((parent.w - w) / 2);
+    ny = parent.y + parent.h + 1;
+  } else if (direction === 'E') {
+    nx = parent.x + parent.w + 1;
+    ny = parent.y + Math.floor((parent.h - h) / 2);
+  } else { // W
+    nx = parent.x - w - 1;
+    ny = parent.y + Math.floor((parent.h - h) / 2);
   }
 
-  // Temporarily set B's position and check collisions
-  const origX = b.x, origY = b.y;
-  b.x = bx;
-  b.y = by;
-  const collides = hasCollision(b, placed, a.id);
-  b.x = origX;
-  b.y = origY;
-
-  if (collides) return null;
-  return { x: bx, y: by };
-}
-
-/** For elongated ships, prefer east/west attachment */
-function getSortedDirs(shape: string, rng: SeededRNG): typeof ATTACH_DIRS[number][] {
-  const dirs = [...ATTACH_DIRS];
-  if (shape === 'elongated') {
-    // Strongly prefer horizontal attachment
-    return rng.shuffle([dirs[0], dirs[1]]).concat(rng.shuffle([dirs[2], dirs[3]]));
+  if (!checkCollision(nodes, nx, ny, w, h, parent.id)) {
+    const newNode: RoomNode = {
+      id: nodes.length,
+      x: nx, y: ny, w, h,
+      type, name, dir: direction,
+    };
+    nodes.push(newNode);
+    edges.push({ source: parent.id, target: newNode.id, type: 'physical' });
+    return newNode;
   }
-  return rng.shuffle(dirs);
+  return null;
 }
 
-function packRooms(graph: ShipGraph, shape: string, rng: SeededRNG): void {
-  const placed: RoomNode[] = [];
-  const roomMap = new Map(graph.rooms.map(r => [r.id, r]));
+/** Try to place rooms symmetrically East and West of parent. */
+function tryAttachSymmetric(
+  nodes: RoomNode[],
+  edges: ShipEdge[],
+  parent: RoomNode,
+  config: RoomConfig,
+  rng: SeededRNG,
+): { E: RoomNode | null; W: RoomNode | null } {
+  const eNode = tryAttach(nodes, edges, parent, config, 'E', rng);
+  const wNode = tryAttach(nodes, edges, parent, config, 'W', rng);
+  return { E: eNode, W: wNode };
+}
 
-  // Start with the first extremity room (cockpit), or first room
-  const startRoom = graph.rooms.find(r => r.extremity) ?? graph.rooms[0];
-  startRoom.x = 0;
-  startRoom.y = 0;
-  placed.push(startRoom);
+/** Place a room floating at a distance from parent (FLOATING architecture).
+ *  Rooms are placed diagonally to create a scattered lattice.
+ *  Connected by teleport edge instead of physical. */
+function tryPlaceFloating(
+  nodes: RoomNode[],
+  edges: ShipEdge[],
+  parent: RoomNode,
+  config: RoomConfig,
+  distance: number,
+  rng: SeededRNG,
+): RoomNode | null {
+  const { w, h, type, name } = config;
+  const dirs = rng.shuffle([
+    { dx: 0.8, dy: -0.8, dir: 'N' },
+    { dx: -0.8, dy: -0.8, dir: 'N' },
+    { dx: 0.8, dy: 0.8, dir: 'S' },
+    { dx: -0.8, dy: 0.8, dir: 'S' },
+  ]);
 
-  // BFS from start room along edges to determine placement order
-  const visited = new Set<string>([startRoom.id]);
-  const queue: string[] = [startRoom.id];
-  const order: { roomId: string; neighborId: string }[] = [];
+  const parentCx = parent.x + parent.w / 2;
+  const parentCy = parent.y + parent.h / 2;
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    for (const [a, b] of graph.edges) {
-      const neighbor = a === current ? b : b === current ? a : null;
-      if (!neighbor || visited.has(neighbor)) continue;
-      visited.add(neighbor);
-      queue.push(neighbor);
-      order.push({ roomId: neighbor, neighborId: current });
+  for (const d of dirs) {
+    const cx = parentCx + d.dx * (parent.w / 2 + w / 2 + distance);
+    const cy = parentCy + d.dy * (parent.h / 2 + h / 2 + distance);
+    const nx = Math.round(cx - w / 2);
+    const ny = Math.round(cy - h / 2);
+
+    if (!checkCollisionExpanded(nodes, nx, ny, w, h, Math.floor(distance * 0.8))) {
+      const newNode: RoomNode = {
+        id: nodes.length,
+        x: nx, y: ny, w, h,
+        type, name, dir: d.dir,
+      };
+      nodes.push(newNode);
+      edges.push({ source: parent.id, target: newNode.id, type: 'teleport' });
+      return newNode;
     }
   }
+  return null;
+}
 
-  // Place each room by attaching it to its neighbor
-  for (const { roomId, neighborId } of order) {
-    const room = roomMap.get(roomId)!;
-    const neighbor = roomMap.get(neighborId)!;
-    const dirs = getSortedDirs(shape, rng);
+// ═══════════════════════════════════════════════════════════
+// EXTERIOR DETECTION (for weapon LOS)
+// ═══════════════════════════════════════════════════════════
 
-    let attached = false;
-    // Try multiple times with slight randomization
-    for (let attempt = 0; attempt < 12; attempt++) {
-      for (const dir of dirs) {
-        const pos = tryAttach(neighbor, room, dir, placed, rng);
-        if (pos) {
-          room.x = pos.x;
-          room.y = pos.y;
-          placed.push(room);
-          attached = true;
+function getExteriorDirs(nodes: RoomNode[], n: RoomNode): string[] {
+  const ncx = n.x + n.w / 2;
+  const ncy = n.y + n.h / 2;
+  const nHalfW = n.w / 2;
+  const nHalfH = n.h / 2;
+
+  const freeDirs: string[] = [];
+
+  const blockedN = nodes.some(o => {
+    if (o.id === n.id) return false;
+    const oCy = o.y + o.h / 2;
+    if (oCy >= ncy) return false; // must be north (lower y)
+    // Check x overlap
+    const oHalfW = o.w / 2;
+    const oCx = o.x + o.w / 2;
+    return Math.abs(ncx - oCx) < nHalfW + oHalfW - 0.1;
+  });
+
+  const blockedS = nodes.some(o => {
+    if (o.id === n.id) return false;
+    const oCy = o.y + o.h / 2;
+    if (oCy <= ncy) return false;
+    const oHalfW = o.w / 2;
+    const oCx = o.x + o.w / 2;
+    return Math.abs(ncx - oCx) < nHalfW + oHalfW - 0.1;
+  });
+
+  const blockedE = nodes.some(o => {
+    if (o.id === n.id) return false;
+    const oCx = o.x + o.w / 2;
+    if (oCx <= ncx) return false;
+    const oHalfH = o.h / 2;
+    const oCy = o.y + o.h / 2;
+    return Math.abs(ncy - oCy) < nHalfH + oHalfH - 0.1;
+  });
+
+  const blockedW = nodes.some(o => {
+    if (o.id === n.id) return false;
+    const oCx = o.x + o.w / 2;
+    if (oCx >= ncx) return false;
+    const oHalfH = o.h / 2;
+    const oCy = o.y + o.h / 2;
+    return Math.abs(ncy - oCy) < nHalfH + oHalfH - 0.1;
+  });
+
+  if (!blockedN) freeDirs.push('N');
+  if (!blockedS) freeDirs.push('S');
+  if (!blockedE) freeDirs.push('E');
+  if (!blockedW) freeDirs.push('W');
+
+  return freeDirs;
+}
+
+// ═══════════════════════════════════════════════════════════
+// LAYOUT ALGORITHMS
+// ═══════════════════════════════════════════════════════════
+
+function layoutSpine(
+  nodes: RoomNode[], edges: ShipEdge[],
+  manifest: DeckManifest, sizeClass: string,
+  layout: ArchitectureLayout, rng: SeededRNG,
+): void {
+  const bridge = nodes[0];
+  const attachDirs = layout.attachDirs ?? ['E', 'W', 'N', 'S'];
+  const symmetryBias = layout.symmetryBias ?? 0.3;
+
+  // Phase 1: Build corridor spine straight south
+  let curr = bridge;
+  const spineNodes: RoomNode[] = [curr];
+  for (let i = 0; i < manifest.corridors; i++) {
+    const s = tryAttach(nodes, edges, curr, getRoomConfig('corridor', sizeClass, rng), 'S', rng);
+    if (s) { spineNodes.push(s); curr = s; }
+  }
+
+  // Phase 2: Attach rooms to spine
+  const attachPoints = [...spineNodes];
+  const rooms = [...manifest.rooms];
+  while (rooms.length > 0) {
+    const typeToPlace = rooms.pop()!;
+    const config = getRoomConfig(typeToPlace, sizeClass, rng);
+    let placed = false;
+
+    for (const sNode of rng.shuffle([...attachPoints])) {
+      if (rng.chance(symmetryBias)) {
+        const attached = tryAttachSymmetric(nodes, edges, sNode, config, rng);
+        if (attached.E || attached.W) {
+          if (attached.E) attachPoints.push(attached.E);
+          if (attached.W) attachPoints.push(attached.W);
+          placed = true;
           break;
         }
+      } else {
+        const dir = rng.pick(attachDirs);
+        const n = tryAttach(nodes, edges, sNode, config, dir, rng);
+        if (n) { attachPoints.push(n); placed = true; break; }
       }
-      if (attached) break;
     }
 
-    if (!attached) {
-      // Fallback: place with a gap (corridor will be needed)
-      const fallbackDir = dirs[0];
-      room.x = neighbor.x + fallbackDir.dx * (neighbor.w + 3);
-      room.y = neighbor.y + fallbackDir.dy * (neighbor.h + 3);
-      placed.push(room);
+    // Fallback: try every node
+    if (!placed) {
+      for (const n of rng.shuffle([...nodes])) {
+        const dir = rng.pick(attachDirs);
+        if (tryAttach(nodes, edges, n, config, dir, rng)) break;
+      }
+    }
+  }
+}
+
+function layoutRadial(
+  nodes: RoomNode[], edges: ShipEdge[],
+  manifest: DeckManifest, sizeClass: string,
+  layout: ArchitectureLayout, rng: SeededRNG,
+): void {
+  const attachDirs = layout.attachDirs ?? ['N', 'S', 'E', 'W'];
+
+  // Merge rooms + corridors into one deck
+  const deck = [...manifest.rooms];
+  for (let i = 0; i < manifest.corridors; i++) deck.push('corridor');
+  rng.shuffle(deck);
+
+  while (deck.length > 0) {
+    const typeToPlace = deck.pop()!;
+    const roomConfig = getRoomConfig(typeToPlace, sizeClass, rng);
+
+    let bestParent: RoomNode | null = null;
+    let bestDir = '';
+    let bestPos: { x: number; y: number } | null = null;
+    let minRadius = Infinity;
+
+    for (const parent of rng.shuffle([...nodes])) {
+      for (const dir of rng.shuffle([...attachDirs])) {
+        // Calculate prospective position
+        const { w, h } = roomConfig;
+        let nx: number, ny: number;
+        if (dir === 'N') { nx = parent.x + Math.floor((parent.w - w) / 2); ny = parent.y - h - 1; }
+        else if (dir === 'S') { nx = parent.x + Math.floor((parent.w - w) / 2); ny = parent.y + parent.h + 1; }
+        else if (dir === 'E') { nx = parent.x + parent.w + 1; ny = parent.y + Math.floor((parent.h - h) / 2); }
+        else { nx = parent.x - w - 1; ny = parent.y + Math.floor((parent.h - h) / 2); }
+
+        const cx = nx + w / 2;
+        const cy = ny + h / 2;
+        const dist = Math.sqrt(cx * cx + cy * cy);
+
+        if (dist < minRadius && !checkCollision(nodes, nx, ny, w, h, parent.id)) {
+          minRadius = dist;
+          bestParent = parent;
+          bestDir = dir;
+          bestPos = { x: nx, y: ny };
+        }
+      }
+    }
+
+    if (bestParent && bestPos) {
+      const newNode: RoomNode = {
+        id: nodes.length,
+        x: bestPos.x, y: bestPos.y,
+        w: roomConfig.w, h: roomConfig.h,
+        type: roomConfig.type, name: roomConfig.name,
+        dir: bestDir,
+      };
+      nodes.push(newNode);
+      edges.push({ source: bestParent.id, target: newNode.id, type: 'physical' });
+    }
+  }
+}
+
+function layoutSegmented(
+  nodes: RoomNode[], edges: ShipEdge[],
+  manifest: DeckManifest, sizeClass: string,
+  layout: ArchitectureLayout, rng: SeededRNG,
+): void {
+  const attachDirs = layout.attachDirs ?? ['N', 'S', 'E', 'W'];
+  const lateralBias = layout.lateralBias ?? 0.3;
+
+  const deck = [...manifest.rooms];
+  for (let i = 0; i < manifest.corridors; i++) deck.push('corridor');
+  rng.shuffle(deck);
+
+  const segments = deck.length > 15 ? 3 : (deck.length > 6 ? 2 : 1);
+  let currentHub = nodes[0]; // bridge
+
+  for (let seg = 0; seg < segments; seg++) {
+    const chunkCount = Math.ceil(deck.length / (segments - seg));
+    const roomsForSegment = deck.splice(0, chunkCount);
+    const segmentNodes: RoomNode[] = [currentHub];
+
+    while (roomsForSegment.length > 0) {
+      const rConfig = getRoomConfig(roomsForSegment.pop()!, sizeClass, rng);
+      let placed = false;
+
+      for (const sNode of rng.shuffle([...segmentNodes])) {
+        for (const dir of rng.shuffle([...attachDirs])) {
+          // Bias against N/S to force lateral growth
+          if ((dir === 'N' || dir === 'S') && !rng.chance(lateralBias)) continue;
+          const n = tryAttach(nodes, edges, sNode, rConfig, dir, rng);
+          if (n) { segmentNodes.push(n); placed = true; break; }
+        }
+        if (placed) break;
+      }
+
+      // Fallback: try all nodes, all dirs
+      if (!placed) {
+        for (const sNode of segmentNodes) {
+          for (const dir of rng.shuffle([...attachDirs])) {
+            const n = tryAttach(nodes, edges, sNode, rConfig, dir, rng);
+            if (n) { segmentNodes.push(n); placed = true; break; }
+          }
+          if (placed) break;
+        }
+      }
+    }
+
+    // Link segments with a long corridor + hub
+    if (seg < segments - 1) {
+      const southMost = [...segmentNodes].sort((a, b) => (b.y + b.h) - (a.y + a.h))[0];
+      const linkConfig: RoomConfig = { w: 2, h: rng.int(6, 12), type: 'corridor', name: 'Segment Link' };
+      const link = tryAttach(nodes, edges, southMost, linkConfig, 'S', rng);
+      if (link) {
+        const hubConfig: RoomConfig = { w: rng.int(4, 6), h: rng.int(4, 6), type: 'corridor', name: 'Hub' };
+        const nextHub = tryAttach(nodes, edges, link, hubConfig, 'S', rng);
+        currentHub = nextHub ?? link;
+      }
+    }
+  }
+}
+
+function layoutScaffold(
+  nodes: RoomNode[], edges: ShipEdge[],
+  manifest: DeckManifest, sizeClass: string,
+  layout: ArchitectureLayout, rng: SeededRNG,
+): void {
+  const attachDirs = layout.attachDirs ?? ['N', 'S', 'E', 'W'];
+  const scaffoldDirs = layout.scaffoldDirs ?? ['N', 'S', 'E', 'W', 'S', 'E', 'W'];
+  const [extraMin, extraMax] = layout.scaffoldExtra ?? [5, 12];
+
+  // Phase 1: Build corridor scaffold
+  const corridorCount = manifest.corridors + rng.int(extraMin, extraMax);
+  const scaffoldNodes: RoomNode[] = [nodes[0]]; // start from bridge
+
+  for (let i = 0; i < corridorCount; i++) {
+    const parent = rng.pick(scaffoldNodes);
+    const dir = rng.pick(scaffoldDirs);
+    const c = tryAttach(nodes, edges, parent, getRoomConfig('corridor', sizeClass, rng), dir, rng);
+    if (c) scaffoldNodes.push(c);
+  }
+
+  // Phase 2: Attach functional rooms to scaffold edges
+  const nonCorridors = [...manifest.rooms];
+  while (nonCorridors.length > 0) {
+    const typeToPlace = nonCorridors.pop()!;
+    const rConfig = getRoomConfig(typeToPlace, sizeClass, rng);
+
+    for (const parent of rng.shuffle([...nodes])) {
+      const dir = rng.pick(attachDirs);
+      if (tryAttach(nodes, edges, parent, rConfig, dir, rng)) break;
+    }
+  }
+}
+
+function layoutFloating(
+  nodes: RoomNode[], edges: ShipEdge[],
+  manifest: DeckManifest, sizeClass: string,
+  layout: ArchitectureLayout, rng: SeededRNG,
+): void {
+  const [fMin, fMax] = layout.floatDist ?? [3, 7];
+
+  const deck = [...manifest.rooms];
+  rng.shuffle(deck);
+
+  while (deck.length > 0) {
+    const typeToPlace = deck.pop()!;
+    const roomConfig = getRoomConfig(typeToPlace, sizeClass, rng);
+
+    for (const parent of rng.shuffle([...nodes])) {
+      const n = tryPlaceFloating(nodes, edges, parent, roomConfig, rng.int(fMin, fMax), rng);
+      if (n) break;
     }
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-// STEP 4: CARVE TO TILEMAP
+// ENGINE PLACEMENT
+// ═══════════════════════════════════════════════════════════
+
+function placeEngines(
+  nodes: RoomNode[], edges: ShipEdge[],
+  engineCount: number, sizeClass: string,
+  arch: ArchitectureData, rng: SeededRNG,
+): void {
+  const layout = arch.layout;
+  const exteriorTypes = ['engine', 'weapons', 'turret', 'missile_bay',
+    'torpedo_tube', 'energy_emitter', 'bio_artillery'];
+
+  // Sort nodes by southernmost edge (highest y + h), exclude engines/weapons
+  const southern = [...nodes]
+    .filter(n => !exteriorTypes.includes(n.type))
+    .sort((a, b) => (b.y + b.h) - (a.y + a.h));
+
+  if (southern.length === 0) return;
+  let enginesPlaced = 0;
+
+  for (const n of southern) {
+    if (enginesPlaced >= engineCount) break;
+
+    const engineConfig = getRoomConfig('engine', sizeClass, rng);
+    let e: RoomNode | null = null;
+
+    if (layout.type === 'FLOATING') {
+      const [eMin, eMax] = layout.engineFloatDist ?? [3, 5];
+      e = tryPlaceFloating(nodes, edges, n, engineConfig, rng.int(eMin, eMax), rng);
+    } else {
+      e = tryAttach(nodes, edges, n, engineConfig, 'S', rng);
+    }
+
+    if (e) {
+      enginesPlaced++;
+      // SPINE: try symmetric engine placement
+      if (layout.type === 'SPINE' && n.type === 'corridor' && enginesPlaced < engineCount) {
+        const sym = tryAttachSymmetric(nodes, edges, n, getRoomConfig('engine', sizeClass, rng), rng);
+        if (sym.E) enginesPlaced++;
+        if (sym.W) enginesPlaced++;
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// POST-PROCESSING
+// ═══════════════════════════════════════════════════════════
+
+/** Mutate weapon rooms based on line-of-sight to exterior. */
+function mutateWeapons(
+  nodes: RoomNode[],
+  arch: ArchitectureData,
+  sizeClass: string,
+  rng: SeededRNG,
+): void {
+  for (const n of nodes) {
+    if (n.type !== 'weapons') continue;
+
+    const freeDirs = getExteriorDirs(nodes, n);
+    if (freeDirs.length > 0) {
+      // Exterior weapon — face outward
+      n.dir = rng.pick(freeDirs);
+      n.type = arch.weaponExterior;
+    } else {
+      // Interior weapon
+      n.type = arch.weaponInterior;
+    }
+    n.name = displayName(n.type);
+  }
+}
+
+/** Add cross-connections between spatially adjacent rooms that don't
+ *  already share an edge, creating loops for better navigation. */
+function addCrossConnections(
+  nodes: RoomNode[], edges: ShipEdge[],
+  crossProb: number, rng: SeededRNG,
+): void {
+  if (crossProb <= 0) return;
+
+  const exteriorTypes = ['engine', 'turret', 'missile_bay',
+    'torpedo_tube', 'energy_emitter', 'bio_artillery'];
+
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const n1 = nodes[i];
+      const n2 = nodes[j];
+
+      if (exteriorTypes.includes(n1.type) || exteriorTypes.includes(n2.type)) continue;
+
+      // Check if edge already exists
+      const exists = edges.some(e =>
+        (e.source === n1.id && e.target === n2.id) ||
+        (e.source === n2.id && e.target === n1.id));
+      if (exists) continue;
+
+      // Check if rooms share a wall (adjacent)
+      const shareVertWall =
+        (n1.x + n1.w + 1 === n2.x || n2.x + n2.w + 1 === n1.x) &&
+        n1.y < n2.y + n2.h && n1.y + n1.h > n2.y;
+
+      const shareHorizWall =
+        (n1.y + n1.h + 1 === n2.y || n2.y + n2.h + 1 === n1.y) &&
+        n1.x < n2.x + n2.w && n1.x + n1.w > n2.x;
+
+      if ((shareVertWall || shareHorizWall) && rng.chance(crossProb)) {
+        edges.push({ source: n1.id, target: n2.id, type: 'physical' });
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// GRAPH GENERATION (orchestrator)
+// ═══════════════════════════════════════════════════════════
+
+function generateShipGraph(
+  shipType: ShipTypeData,
+  arch: ArchitectureData,
+  rng: SeededRNG,
+): ShipGraph {
+  const nodes: RoomNode[] = [];
+  const edges: ShipEdge[] = [];
+
+  const manifest = getDeckManifest(shipType, rng);
+  const sizeClass = shipType.sizeClass;
+
+  // Seed: bridge at origin
+  const bridgeConfig = getRoomConfig('bridge', sizeClass, rng);
+  const bridge: RoomNode = {
+    id: 0,
+    x: -Math.floor(bridgeConfig.w / 2),
+    y: -Math.floor(bridgeConfig.h / 2),
+    w: bridgeConfig.w,
+    h: bridgeConfig.h,
+    type: 'bridge',
+    name: 'Command',
+    dir: 'N',
+  };
+  nodes.push(bridge);
+
+  // Layout growth
+  const layout = arch.layout;
+  switch (layout.type) {
+    case 'SPINE':
+      layoutSpine(nodes, edges, manifest, sizeClass, layout, rng);
+      break;
+    case 'RADIAL':
+      layoutRadial(nodes, edges, manifest, sizeClass, layout, rng);
+      break;
+    case 'SEGMENTED':
+      layoutSegmented(nodes, edges, manifest, sizeClass, layout, rng);
+      break;
+    case 'SCAFFOLD':
+      layoutScaffold(nodes, edges, manifest, sizeClass, layout, rng);
+      break;
+    case 'FLOATING':
+      layoutFloating(nodes, edges, manifest, sizeClass, layout, rng);
+      break;
+  }
+
+  // Engine placement
+  placeEngines(nodes, edges, manifest.engines, sizeClass, arch, rng);
+
+  // Post-processing: weapon mutation
+  mutateWeapons(nodes, arch, sizeClass, rng);
+
+  // Post-processing: cross-connections
+  addCrossConnections(nodes, edges, layout.crossProb, rng);
+
+  return { nodes, edges, shipType: shipType.id, architecture: arch.id };
+}
+
+// ═══════════════════════════════════════════════════════════
+// TILE CARVING
 // ═══════════════════════════════════════════════════════════
 
 /** Find where two rooms share a wall and can have a door. */
 function findDoorPosition(a: RoomNode, b: RoomNode, rng: SeededRNG): { x: number; y: number } | null {
-  // Check if rooms are adjacent horizontally (shared vertical wall)
+  // Shared vertical wall (rooms side by side)
   if (a.x + a.w + 1 === b.x || b.x + b.w + 1 === a.x) {
-    // Shared vertical wall — find overlapping y range
     const wallX = a.x + a.w + 1 === b.x ? a.x + a.w : b.x + b.w;
     const overlapMin = Math.max(a.y, b.y);
     const overlapMax = Math.min(a.y + a.h - 1, b.y + b.h - 1);
     if (overlapMin <= overlapMax) {
-      const doorY = rng.intRange(overlapMin, overlapMax);
-      return { x: wallX, y: doorY };
+      return { x: wallX, y: rng.int(overlapMin, overlapMax) };
     }
   }
 
-  // Check if rooms are adjacent vertically (shared horizontal wall)
+  // Shared horizontal wall (rooms above/below)
   if (a.y + a.h + 1 === b.y || b.y + b.h + 1 === a.y) {
     const wallY = a.y + a.h + 1 === b.y ? a.y + a.h : b.y + b.h;
     const overlapMin = Math.max(a.x, b.x);
     const overlapMax = Math.min(a.x + a.w - 1, b.x + b.w - 1);
     if (overlapMin <= overlapMax) {
-      const doorX = rng.intRange(overlapMin, overlapMax);
-      return { x: doorX, y: wallY };
+      return { x: rng.int(overlapMin, overlapMax), y: wallY };
     }
   }
 
@@ -303,10 +817,8 @@ function findDoorPosition(a: RoomNode, b: RoomNode, rng: SeededRNG): { x: number
 
 /** Carve an L-shaped corridor between two rooms that aren't adjacent. */
 function carveCorridor(
-  a: RoomNode,
-  b: RoomNode,
-  tileMap: TileMap,
-  rng: SeededRNG,
+  a: RoomNode, b: RoomNode,
+  tileMap: TileMap, rng: SeededRNG,
 ): { x: number; y: number }[] {
   const ax = a.x + Math.floor(a.w / 2);
   const ay = a.y + Math.floor(a.h / 2);
@@ -315,24 +827,14 @@ function carveCorridor(
 
   const points: { x: number; y: number }[] = [];
 
-  // L-shaped: go horizontal then vertical (or vice versa)
   if (rng.chance(0.5)) {
-    for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) {
-      points.push({ x, y: ay });
-    }
-    for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) {
-      points.push({ x: bx, y });
-    }
+    for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) points.push({ x, y: ay });
+    for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) points.push({ x: bx, y });
   } else {
-    for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) {
-      points.push({ x: ax, y });
-    }
-    for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) {
-      points.push({ x, y: by });
-    }
+    for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) points.push({ x: ax, y });
+    for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) points.push({ x, y: by });
   }
 
-  // Carve corridor floor and surrounding walls
   for (const { x, y } of points) {
     if (!tileMap.inBounds(x, y)) continue;
     tileMap.set(x, y, TileType.FLOOR);
@@ -351,26 +853,74 @@ function carveCorridor(
   return points;
 }
 
+/** Fill void gaps inside the ship footprint with wall (hull generation). */
+function fillInteriorVoid(tileMap: TileMap): void {
+  const { width, height } = tileMap;
+
+  let minX = width, maxX = 0, minY = height, maxY = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (tileMap.tiles[y * width + x] !== TileType.VOID) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const idx = y * width + x;
+      if (tileMap.tiles[idx] === TileType.VOID) {
+        tileMap.tiles[idx] = TileType.WALL;
+      }
+    }
+  }
+}
+
+/** Pick the floor tile inside a room that is closest to a target point. */
+function pickTeleporterTile(
+  room: RoomNode, targetX: number, targetY: number,
+  tileMap: TileMap, _rng: SeededRNG,
+): { x: number; y: number } {
+  let bestX = room.x + Math.floor(room.w / 2);
+  let bestY = room.y + Math.floor(room.h / 2);
+  let bestDist = Infinity;
+
+  for (let y = room.y; y < room.y + room.h; y++) {
+    for (let x = room.x; x < room.x + room.w; x++) {
+      if (tileMap.get(x, y) !== TileType.FLOOR) continue;
+      const dist = (x - targetX) * (x - targetX) + (y - targetY) * (y - targetY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestX = x;
+        bestY = y;
+      }
+    }
+  }
+
+  return { x: bestX, y: bestY };
+}
+
+/** Carve the ship graph onto a TileMap. Returns door + teleporter positions. */
 function carveShipToTileMap(
-  graph: ShipGraph,
-  tileMap: TileMap,
-  offsetX: number,
-  offsetY: number,
-  rng: SeededRNG,
-): { x: number; y: number }[] {
-  const roomMap = new Map(graph.rooms.map(r => [r.id, r]));
+  graph: ShipGraph, tileMap: TileMap,
+  offsetX: number, offsetY: number, rng: SeededRNG,
+): { doors: { x: number; y: number }[]; teleporters: TeleporterPair[] } {
+  const nodeMap = new Map(graph.nodes.map(n => [n.id, n]));
   const doors: { x: number; y: number }[] = [];
+  const teleporters: TeleporterPair[] = [];
 
-  // Carve each room: walls + interior floor
-  for (const room of graph.rooms) {
-    const rx = room.x + offsetX;
-    const ry = room.y + offsetY;
+  // Carve each room: wall border + floor interior
+  for (const node of graph.nodes) {
+    const rx = node.x + offsetX;
+    const ry = node.y + offsetY;
 
-    // Walls (1-tile border around interior)
-    for (let y = ry - 1; y <= ry + room.h; y++) {
-      for (let x = rx - 1; x <= rx + room.w; x++) {
+    for (let y = ry - 1; y <= ry + node.h; y++) {
+      for (let x = rx - 1; x <= rx + node.w; x++) {
         if (!tileMap.inBounds(x, y)) continue;
-        const isInterior = x >= rx && x < rx + room.w && y >= ry && y < ry + room.h;
+        const isInterior = x >= rx && x < rx + node.w && y >= ry && y < ry + node.h;
         if (isInterior) {
           tileMap.set(x, y, TileType.FLOOR);
         } else if (tileMap.get(x, y) === TileType.VOID) {
@@ -380,32 +930,53 @@ function carveShipToTileMap(
     }
   }
 
-  // Process edges: place doors at shared walls, or carve corridors
-  for (const [aId, bId] of graph.edges) {
-    const a = roomMap.get(aId)!;
-    const b = roomMap.get(bId)!;
+  // Process edges
+  for (const edge of graph.edges) {
+    const a = nodeMap.get(edge.source);
+    const b = nodeMap.get(edge.target);
+    if (!a || !b) continue;
 
-    // Offset room positions for door calculation
-    const aOff = { ...a, x: a.x + offsetX, y: a.y + offsetY };
-    const bOff = { ...b, x: b.x + offsetX, y: b.y + offsetY };
+    if (edge.type === 'teleport') {
+      // Place teleporter pads — one in each room, facing the other
+      const aCx = a.x + Math.floor(a.w / 2) + offsetX;
+      const aCy = a.y + Math.floor(a.h / 2) + offsetY;
+      const bCx = b.x + Math.floor(b.w / 2) + offsetX;
+      const bCy = b.y + Math.floor(b.h / 2) + offsetY;
+
+      const aOff = { ...a, x: a.x + offsetX, y: a.y + offsetY };
+      const bOff = { ...b, x: b.x + offsetX, y: b.y + offsetY };
+
+      const padA = pickTeleporterTile(aOff, bCx, bCy, tileMap, rng);
+      const padB = pickTeleporterTile(bOff, aCx, aCy, tileMap, rng);
+      teleporters.push({ a: padA, b: padB });
+      continue;
+    }
+
+    // Physical edge — door or corridor
+    const aOff: RoomNode = { ...a, x: a.x + offsetX, y: a.y + offsetY };
+    const bOff: RoomNode = { ...b, x: b.x + offsetX, y: b.y + offsetY };
 
     const doorPos = findDoorPosition(aOff, bOff, rng);
     if (doorPos) {
-      // Rooms are adjacent — place door in shared wall
       tileMap.set(doorPos.x, doorPos.y, TileType.FLOOR);
       doors.push(doorPos);
     } else {
-      // Rooms aren't adjacent — carve corridor
-      const corridorPoints = carveCorridor(aOff, bOff, tileMap, rng);
-      // Place doors where corridor enters each room
-      if (corridorPoints.length > 0) {
-        doors.push(corridorPoints[0]);
-        doors.push(corridorPoints[corridorPoints.length - 1]);
+      // Non-adjacent — carve corridor
+      const corridorPts = carveCorridor(aOff, bOff, tileMap, rng);
+      if (corridorPts.length > 0) {
+        doors.push(corridorPts[0]);
+        doors.push(corridorPts[corridorPts.length - 1]);
       }
     }
   }
 
-  return doors;
+  // Hull fill — seal void gaps inside the ship (skip for floating ships
+  // where rooms are intentionally disconnected)
+  if (graph.architecture !== 'monolithic') {
+    fillInteriorVoid(tileMap);
+  }
+
+  return { doors, teleporters };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -415,55 +986,67 @@ function carveShipToTileMap(
 /** Last generated graph — available for debug overlay rendering */
 export let lastGeneratedGraph: ShipGraph | null = null;
 
-export function generateShipFromClass(
-  shipClass: ShipClassData,
+export interface ShipGenConfig {
+  shipType: string;
+  architecture: string;
+}
+
+export function generateShipFromConfig(
+  config: ShipGenConfig,
   seed?: string,
 ): GeneratedShipResult {
   const rng = new SeededRNG(seed);
+  const registry = getRegistry();
 
-  // Step 1-2: Build graph with sized rooms
-  const graph = buildGraph(shipClass, rng);
+  const shipType = registry.shipTypes.get(config.shipType);
+  if (!shipType) throw new Error(`Unknown ship type: "${config.shipType}"`);
+  const arch = registry.architectures.get(config.architecture);
+  if (!arch) throw new Error(`Unknown architecture: "${config.architecture}"`);
 
-  // Step 3: Pack rooms
-  packRooms(graph, shipClass.shape, rng);
+  // Generate ship graph
+  const graph = generateShipGraph(shipType, arch, rng);
   lastGeneratedGraph = graph;
 
-  // Compute bounding box of all rooms (with wall borders)
+  // Compute bounding box (with wall borders)
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const room of graph.rooms) {
-    minX = Math.min(minX, room.x - 1);
-    minY = Math.min(minY, room.y - 1);
-    maxX = Math.max(maxX, room.x + room.w);
-    maxY = Math.max(maxY, room.y + room.h);
+  for (const node of graph.nodes) {
+    minX = Math.min(minX, node.x - 1);
+    minY = Math.min(minY, node.y - 1);
+    maxX = Math.max(maxX, node.x + node.w);
+    maxY = Math.max(maxY, node.y + node.h);
   }
 
-  // Add border padding around the ship
   const border = 3;
   const mapW = (maxX - minX + 1) + border * 2;
   const mapH = (maxY - minY + 1) + border * 2;
   const offsetX = border - minX;
   const offsetY = border - minY;
 
-  // Step 4: Create tilemap and carve
+  // Carve to tilemap
   const tileMap = new TileMap(mapW, mapH);
-  const doors = carveShipToTileMap(graph, tileMap, offsetX, offsetY, rng);
+  const { doors, teleporters } = carveShipToTileMap(graph, tileMap, offsetX, offsetY, rng);
 
-  // Compute room centers for spawning / debug overlay
-  const roomCenters = graph.rooms.map(r => ({
-    id: r.id,
-    function: r.function,
-    x: r.x + offsetX + Math.floor(r.w / 2),
-    y: r.y + offsetY + Math.floor(r.h / 2),
+  // Room centers (tilemap coords)
+  const roomCenters = graph.nodes.map(n => ({
+    id: n.id,
+    type: n.type,
+    name: n.name,
+    x: n.x + offsetX + Math.floor(n.w / 2),
+    y: n.y + offsetY + Math.floor(n.h / 2),
   }));
 
-  // Player spawns in the first room (cockpit)
-  const playerSpawn = { ...roomCenters[0] };
+  // Player spawns in the bridge (first node)
+  const playerSpawn = { x: roomCenters[0].x, y: roomCenters[0].y };
 
-  return {
-    tileMap,
-    graph,
-    playerSpawn,
-    doors,
-    roomCenters,
-  };
+  return { tileMap, graph, playerSpawn, doors, teleporters, roomCenters };
+}
+
+/** Backward-compatible wrapper — generates from ShipClassData.
+ *  Falls back to default config if the ship class doesn't map to new data. */
+export function generateShipFromClass(
+  _shipClass: import('../types').ShipClassData,
+  seed?: string,
+): GeneratedShipResult {
+  // Default to scout + human architecture for legacy compatibility
+  return generateShipFromConfig({ shipType: 'scout', architecture: 'human' }, seed);
 }

@@ -1,0 +1,11 @@
+{
+  id: "fighter",
+  name: "Fighter",
+  sizeClass: "tiny",
+  deck: {
+    weapons: [2, 4],
+    shields: [0, 1],
+    sensors: [0, 1],
+  },
+  engines: [1, 3],
+}

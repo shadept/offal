@@ -14,12 +14,12 @@
  * - Fire & physics systems (Phase 4)
  */
 import { Scene } from 'phaser';
-import { createGameWorld, spawnPlayer, spawnDoor } from '../ecs/world';
-import { lastGeneratedGraph } from '../map/shipGen';
+import { createGameWorld, spawnPlayer, spawnDoor, spawnTeleporter, linkTeleporters } from '../ecs/world';
+import type { ShipGraph } from '../map/shipGen';
 import { addEntity, addComponent, removeEntity, hasComponent, query } from 'bitecs';
 import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
-  Health, Faction, CombatStats, Dead, Door,
+  Health, Faction, CombatStats, Dead, Door, Teleporter,
 } from '../ecs/components';
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
 import { TurnSystem } from '../ecs/systems/turnSystem';
@@ -131,7 +131,7 @@ export class GameScene extends Scene {
   private currentSeed = '';
   private currentRooms: RoomInfo[] = [];
   private shipGraphOverlay: Phaser.GameObjects.Graphics | null = null;
-  private shipGraphData: import('../map/shipGen').ShipGraph | null = null;
+  private shipGraphData: ShipGraph | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -151,7 +151,7 @@ export class GameScene extends Scene {
     this.tileMap = shipResult.tileMap;
     this.currentSeed = shipResult.seed;
     this.currentRooms = shipResult.rooms;
-    this.shipGraphData = lastGeneratedGraph;
+    this.shipGraphData = shipResult.graph;
     console.log(`[dungeon] Generated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
 
     // ── Containers (tile layer below overlay layer below entity layer) ──
@@ -184,6 +184,13 @@ export class GameScene extends Scene {
       this.tileMap.entityBlocksLight[idx] = 1;
     }
 
+    // ── Spawn teleporter entities ──
+    for (const pair of shipResult.teleporters) {
+      const eidA = spawnTeleporter(this.world, pair.a.x, pair.a.y);
+      const eidB = spawnTeleporter(this.world, pair.b.x, pair.b.y);
+      linkTeleporters(eidA, eidB);
+    }
+
     // ── Apply arrival events (pre-existing fire, gas leaks) ──
     this.applyArrivalEvents(shipResult.arrivalEvents);
 
@@ -209,6 +216,11 @@ export class GameScene extends Scene {
       this.createEntitySprite(eid, undefined, TEX.DOOR_CLOSED);
     }
 
+    // ── Create teleporter entity sprites ──
+    for (const eid of query(this.world, [Teleporter, Position])) {
+      this.createEntitySprite(eid, undefined, TEX.TELEPORTER);
+    }
+
     // ── Create player sprite ──
     this.createEntitySprite(this.playerEid, 'salvager');
 
@@ -219,12 +231,7 @@ export class GameScene extends Scene {
     this.updateFOV();
     this.renderTiles();
 
-    // ── Camera ──
-    const mapPixelW = this.tileMap.width * TILE_SIZE;
-    const mapPixelH = this.tileMap.height * TILE_SIZE;
-    this.cameras.main.setBounds(0, 0, mapPixelW, mapPixelH);
-    // Follow the player sprite with lerp smoothing — camera tracks the
-    // tween position during move animations instead of snapping after.
+    // ── Camera — always centered on player, no bounds ──
     const playerSprite = this.entitySprites.get(this.playerEid)!;
     this.cameras.main.startFollow(playerSprite, true, 0.15, 0.15,
       -TILE_SIZE / 2, -TILE_SIZE / 2);
@@ -732,6 +739,43 @@ export class GameScene extends Scene {
       });
     });
 
+    // ── Teleport event — fade out at source, snap to dest, fade in ──
+    this.eventQueue.registerHandler('teleport', (event: VisualEvent, onComplete: () => void) => {
+      const { toX, toY } = event.data as {
+        fromX: number; fromY: number; toX: number; toY: number;
+      };
+      const sprite = this.entitySprites.get(event.entityId);
+      if (!sprite || this.eventQueue.skipMode) {
+        if (sprite) sprite.setPosition(toX * TILE_SIZE, toY * TILE_SIZE);
+        onComplete();
+        return;
+      }
+
+      // Fade out at source
+      this.tweens.add({
+        targets: sprite,
+        alpha: 0,
+        scaleX: 0.3,
+        scaleY: 0.3,
+        duration: 150,
+        ease: 'Quad.easeIn',
+        onComplete: () => {
+          // Snap to destination
+          sprite.setPosition(toX * TILE_SIZE, toY * TILE_SIZE);
+          // Fade in at destination
+          this.tweens.add({
+            targets: sprite,
+            alpha: 1,
+            scaleX: 1,
+            scaleY: 1,
+            duration: 150,
+            ease: 'Quad.easeOut',
+            onComplete: () => onComplete(),
+          });
+        },
+      });
+    });
+
     // ── Door open event ──
     this.eventQueue.registerHandler('door_open', (event: VisualEvent, onComplete: () => void) => {
       const doorEid = event.entityId;
@@ -1030,7 +1074,7 @@ export class GameScene extends Scene {
     this.tileMap = shipResult.tileMap;
     this.currentSeed = shipResult.seed;
     this.currentRooms = shipResult.rooms;
-    this.shipGraphData = lastGeneratedGraph;
+    this.shipGraphData = shipResult.graph;
     console.log(`[dungeon] Regenerated ship with seed "${this.currentSeed}", ${shipResult.rooms.length} rooms`);
 
     // ── Rebuild physics ──
@@ -1042,6 +1086,13 @@ export class GameScene extends Scene {
       const idx = this.tileMap.idx(door.x, door.y);
       this.tileMap.entityBlocksMovement[idx] = 1;
       this.tileMap.entityBlocksLight[idx] = 1;
+    }
+
+    // ── Spawn teleporter entities ──
+    for (const pair of shipResult.teleporters) {
+      const eidA = spawnTeleporter(this.world, pair.a.x, pair.a.y);
+      const eidB = spawnTeleporter(this.world, pair.b.x, pair.b.y);
+      linkTeleporters(eidA, eidB);
     }
 
     this.applyArrivalEvents(shipResult.arrivalEvents);
@@ -1068,6 +1119,11 @@ export class GameScene extends Scene {
       this.createEntitySprite(eid, undefined, TEX.DOOR_CLOSED);
     }
 
+    // ── Create teleporter sprites ──
+    for (const eid of query(this.world, [Teleporter, Position])) {
+      this.createEntitySprite(eid, undefined, TEX.TELEPORTER);
+    }
+
     // ── Create player sprite ──
     this.createEntitySprite(this.playerEid, 'salvager');
 
@@ -1077,10 +1133,8 @@ export class GameScene extends Scene {
     // ── Rebind sandbox refs ──
     this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics);
 
-    // ── Camera ──
-    const mapPixelW = this.tileMap.width * TILE_SIZE;
-    const mapPixelH = this.tileMap.height * TILE_SIZE;
-    this.cameras.main.setBounds(0, 0, mapPixelW, mapPixelH);
+    // ── Camera — always centered on player, no bounds ──
+    this.cameras.main.removeBounds();
     const playerSprite = this.entitySprites.get(this.playerEid)!;
     this.cameras.main.startFollow(playerSprite, true, 0.15, 0.15,
       -TILE_SIZE / 2, -TILE_SIZE / 2);
@@ -1568,47 +1622,62 @@ export class GameScene extends Scene {
     const gfx = this.add.graphics();
     gfx.setDepth(10);
 
-    // Build pixel-position map from graph room nodes + currentRooms
-    // currentRooms[i] corresponds to graph.rooms[i] (same order from generation)
-    const centers = new Map<string, { px: number; py: number }>();
-    for (let i = 0; i < graph.rooms.length; i++) {
-      const room = graph.rooms[i];
+    // Build pixel-position map from graph nodes + currentRooms
+    const centers = new Map<number, { px: number; py: number }>();
+    for (let i = 0; i < graph.nodes.length; i++) {
+      const node = graph.nodes[i];
       const info = this.currentRooms[i];
       if (!info) continue;
-      centers.set(room.id, {
+      centers.set(node.id, {
         px: info.center.x * TILE_SIZE + TILE_SIZE / 2,
         py: info.center.y * TILE_SIZE + TILE_SIZE / 2,
       });
     }
 
-    // Draw edges
-    gfx.lineStyle(2, 0xffff00, 0.6);
-    for (const [aId, bId] of graph.edges) {
-      const a = centers.get(aId);
-      const b = centers.get(bId);
+    // Draw edges (yellow for physical, cyan for teleport)
+    for (const edge of graph.edges) {
+      const a = centers.get(edge.source);
+      const b = centers.get(edge.target);
       if (!a || !b) continue;
-      gfx.beginPath();
-      gfx.moveTo(a.px, a.py);
-      gfx.lineTo(b.px, b.py);
-      gfx.strokePath();
+
+      if (edge.type === 'teleport') {
+        gfx.lineStyle(2, 0x00ffff, 0.4);
+        // Dashed effect: draw short segments
+        const dx = b.px - a.px;
+        const dy = b.py - a.py;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const segments = Math.max(1, Math.floor(len / 12));
+        for (let s = 0; s < segments; s += 2) {
+          const t0 = s / segments;
+          const t1 = Math.min((s + 1) / segments, 1);
+          gfx.beginPath();
+          gfx.moveTo(a.px + dx * t0, a.py + dy * t0);
+          gfx.lineTo(a.px + dx * t1, a.py + dy * t1);
+          gfx.strokePath();
+        }
+      } else {
+        gfx.lineStyle(2, 0xffff00, 0.6);
+        gfx.beginPath();
+        gfx.moveTo(a.px, a.py);
+        gfx.lineTo(b.px, b.py);
+        gfx.strokePath();
+      }
     }
 
     // Draw nodes and labels
-    for (const room of graph.rooms) {
-      const c = centers.get(room.id);
+    for (const node of graph.nodes) {
+      const c = centers.get(node.id);
       if (!c) continue;
 
-      // Node circle
       gfx.fillStyle(0x00ff00, 0.7);
       gfx.fillCircle(c.px, c.py, 8);
       gfx.lineStyle(1, 0xffffff, 0.8);
       gfx.strokeCircle(c.px, c.py, 8);
 
-      // Label: function, size, extremity flag
-      const sizeLabel = `${room.w}x${room.h}`;
-      const extLabel = room.extremity ? ' [ext]' : '';
+      const sizeLabel = `${node.w}x${node.h}`;
+      const dirLabel = node.dir ? ` [${node.dir}]` : '';
       const label = this.add.text(c.px + 12, c.py - 8,
-        `${room.function}\n${sizeLabel}${extLabel}`, {
+        `${node.name}\n${node.type} ${sizeLabel}${dirLabel}`, {
           fontFamily: 'monospace',
           fontSize: '10px',
           color: '#00ff00',

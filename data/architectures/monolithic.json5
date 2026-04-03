@@ -1,0 +1,14 @@
+{
+  // Monolithic architecture — disjointed islands connected by teleporters.
+  // floatDist controls the tile gap between modules.
+  id: "monolithic",
+  name: "Monolithic (Energy Network)",
+  layout: {
+    type: "FLOATING",
+    crossProb: 0.0,
+    floatDist: [3, 7],
+    engineFloatDist: [3, 5],
+  },
+  weaponExterior: "energy_emitter",
+  weaponInterior: "torpedo_tube",
+}

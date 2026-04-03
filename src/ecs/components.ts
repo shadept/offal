@@ -75,6 +75,13 @@ export const Door = soa({
   isOpen: new Uint8Array(MAX_ENTITIES),
 });
 
+// ── Teleporter ───────────────────────────────────────────────
+// Paired teleporter pads — stepping on one warps to the linked pad.
+// linkedEid: entity ID of the partner teleporter
+export const Teleporter = soa({
+  linkedEid: new Int32Array(MAX_ENTITIES),
+});
+
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};

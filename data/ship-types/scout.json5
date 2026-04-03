@@ -1,0 +1,14 @@
+{
+  id: "scout",
+  name: "Scout",
+  sizeClass: "small",
+  deck: {
+    corridor: [1, 2],
+    sensors: [1, 2],
+    crew_quarters: [1, 1],
+    lab: [0, 1],
+    storage: [1, 2],
+    weapons: [0, 1],
+  },
+  engines: [1, 3],
+}

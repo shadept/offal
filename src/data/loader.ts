@@ -3,7 +3,7 @@
  * All game content is data-driven; no hardcoded content in game logic.
  */
 import JSON5 from 'json5';
-import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, ShipClassData, DataRegistry } from '../types';
+import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, ShipClassData, ArchitectureData, ShipTypeData, RoomSizeData, DataRegistry } from '../types';
 
 // Vite glob imports — `?raw` imports file contents as strings
 const materialFiles = import.meta.glob('/data/materials/*.json5', {
@@ -49,6 +49,24 @@ const roomFiles = import.meta.glob('/data/rooms.json5', {
 });
 
 const shipClassFiles = import.meta.glob('/data/ships/*.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const architectureFiles = import.meta.glob('/data/architectures/*.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const shipTypeFiles = import.meta.glob('/data/ship-types/*.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const roomSizeFiles = import.meta.glob('/data/room-sizes.json5', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -183,6 +201,50 @@ function parseShipClasses(): Map<string, ShipClassData> {
   return map;
 }
 
+function parseArchitectures(): Map<string, ArchitectureData> {
+  const map = new Map<string, ArchitectureData>();
+  for (const [path, raw] of Object.entries(architectureFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string) as ArchitectureData;
+      if (parsed.id) map.set(parsed.id, parsed);
+    } catch (e) {
+      console.error(`Failed to parse architecture file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
+function parseShipTypes(): Map<string, ShipTypeData> {
+  const map = new Map<string, ShipTypeData>();
+  for (const [path, raw] of Object.entries(shipTypeFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string) as ShipTypeData;
+      if (parsed.id) map.set(parsed.id, parsed);
+    } catch (e) {
+      console.error(`Failed to parse ship type file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
+function parseRoomSizes(): { byType: Map<string, RoomSizeData>; defaultSize: { w: [number, number]; h: [number, number] } } {
+  const byType = new Map<string, RoomSizeData>();
+  let defaultSize: { w: [number, number]; h: [number, number] } = { w: [3, 6], h: [3, 6] };
+  for (const [path, raw] of Object.entries(roomSizeFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string);
+      const list: RoomSizeData[] = parsed.roomSizes ?? [];
+      for (const rs of list) {
+        if (rs.type) byType.set(rs.type, rs);
+      }
+      if (parsed.defaultSize) defaultSize = parsed.defaultSize;
+    } catch (e) {
+      console.error(`Failed to parse room size file ${path}:`, e);
+    }
+  }
+  return { byType, defaultSize };
+}
+
 let registry: DataRegistry | null = null;
 
 /** Load all JSON5 data files and return the registry. Cached after first call. */
@@ -192,6 +254,7 @@ export function loadData(): DataRegistry {
   const { byId: tiles, byIndex: tilesByIndex } = parseTiles();
 
   const rooms = parseRooms();
+  const { byType: roomSizes, defaultSize: defaultRoomSize } = parseRoomSizes();
 
   registry = {
     materials: parseMaterials(),
@@ -203,6 +266,10 @@ export function loadData(): DataRegistry {
     physicsRules: parsePhysicsRules(),
     rooms,
     shipClasses: parseShipClasses(),
+    architectures: parseArchitectures(),
+    shipTypes: parseShipTypes(),
+    roomSizes,
+    defaultRoomSize,
   };
 
   console.log(
@@ -213,7 +280,9 @@ export function loadData(): DataRegistry {
     `${registry.maps.size} maps, ` +
     `${registry.physicsRules.rules.length} physics rules, ` +
     `${registry.rooms.size} room types, ` +
-    `${registry.shipClasses.size} ship classes`
+    `${registry.shipClasses.size} ship classes, ` +
+    `${registry.architectures.size} architectures, ` +
+    `${registry.shipTypes.size} ship types`
   );
   return registry;
 }

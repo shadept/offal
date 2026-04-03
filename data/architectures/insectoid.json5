@@ -1,0 +1,13 @@
+{
+  // Insectoid architecture — distinct body clusters linked by long corridors.
+  id: "insectoid",
+  name: "Insectoid (Segmented Clusters)",
+  layout: {
+    type: "SEGMENTED",
+    crossProb: 0.45,
+    lateralBias: 0.3,
+    attachDirs: ["N", "S", "E", "W"],
+  },
+  weaponExterior: "bio_artillery",
+  weaponInterior: "bio_artillery",
+}

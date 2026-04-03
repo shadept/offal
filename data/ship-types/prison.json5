@@ -1,0 +1,16 @@
+{
+  id: "prison",
+  name: "Prison Ship",
+  sizeClass: "large",
+  deck: {
+    corridor: [5, 8],
+    cells: [6, 10],
+    security: [2, 3],
+    crew_quarters: [1, 2],
+    cantina: [1, 1],
+    medical: [1, 2],
+    armory: [1, 2],
+    weapons: [2, 4],
+  },
+  engines: [2, 5],
+}

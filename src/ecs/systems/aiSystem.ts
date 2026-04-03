@@ -18,7 +18,7 @@ import {
 import { areHostile } from '../factions';
 import { TileMap } from '../../map/TileMap';
 import { getRegistry } from '../../data/loader';
-import { getClosedDoorAt, openDoorEntity } from './movementSystem';
+import { getClosedDoorAt, openDoorEntity, checkTeleport } from './movementSystem';
 import { getVisibleTiles } from '../../map/fov';
 import type { VisualEvent } from '../../types';
 import type { VisualEventQueue } from '../../visual/EventQueue';
@@ -323,7 +323,7 @@ function doSeek(
   if (isTileOccupied(step.x, step.y, eid, world) || pendingTiles.has(key)) return;
 
   pendingTiles.add(key);
-  enqueueMove(eid, ex, ey, step.x, step.y, eventQueue);
+  enqueueMove(eid, ex, ey, step.x, step.y, eventQueue, map, world);
 
   // Consume the step from cached path
   path.shift();
@@ -398,7 +398,7 @@ function doSearch(
   }
 
   pendingTiles.add(key);
-  enqueueMove(eid, ex, ey, step.x, step.y, eventQueue);
+  enqueueMove(eid, ex, ey, step.x, step.y, eventQueue, map, world);
   path.shift();
   AI.searchBudget[eid] = budget - 1;
 }
@@ -446,7 +446,7 @@ function wander(
     pendingTiles.add(key);
     AI.lastDirX[eid] = dx;
     AI.lastDirY[eid] = dy;
-    enqueueMove(eid, x, y, nx, ny, eventQueue);
+    enqueueMove(eid, x, y, nx, ny, eventQueue, map, world);
     return;
   }
 }
@@ -613,12 +613,13 @@ export function performAttack(
 // MOVEMENT
 // ═══════════════════════════════════════════════════════════
 
-/** Enqueue a move visual event with position commit. */
+/** Enqueue a move visual event with position commit, then check teleporters. */
 function enqueueMove(
   eid: number,
   fromX: number, fromY: number,
   toX: number, toY: number,
   eventQueue: VisualEventQueue,
+  map?: TileMap, world?: object,
 ): void {
   const moveEvent: VisualEvent = {
     type: 'move',
@@ -628,6 +629,11 @@ function enqueueMove(
   Position.x[eid] = toX;
   Position.y[eid] = toY;
   eventQueue.push(moveEvent);
+
+  // Teleporter check — warp if entity stepped onto a pad
+  if (map && world) {
+    checkTeleport(eid, fromX, fromY, map, world, eventQueue);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

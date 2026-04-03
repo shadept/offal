@@ -48,9 +48,13 @@ export class VisualEventQueue {
     return this._skipMode;
   }
 
+  /** Event types that must wait for all other events to finish first. */
+  private static DEFERRED_TYPES = new Set(['teleport']);
+
   /**
-   * Start draining the queue. Fires all handlers in parallel.
-   * Calls onComplete when every animation has finished.
+   * Start draining the queue. Fires handlers in parallel, except deferred
+   * event types (like teleport) which run in a second pass after the first
+   * batch completes. This lets walk→teleport chain sequentially.
    */
   drain(onComplete: () => void): void {
     if (this.queue.length === 0) {
@@ -67,20 +71,34 @@ export class VisualEventQueue {
       return;
     }
 
-    // Fire all events in parallel
     const events = this.queue.splice(0);
+    const immediate = events.filter(e => !VisualEventQueue.DEFERRED_TYPES.has(e.type));
+    const deferred = events.filter(e => VisualEventQueue.DEFERRED_TYPES.has(e.type));
+
+    // If no immediate events, jump straight to deferred
+    if (immediate.length === 0) {
+      this.fireEvents(deferred, () => this.finishDrain());
+      return;
+    }
+
+    // Fire immediate events, then deferred
+    this.fireEvents(immediate, () => {
+      if (deferred.length === 0) {
+        this.finishDrain();
+      } else {
+        this.fireEvents(deferred, () => this.finishDrain());
+      }
+    });
+  }
+
+  /** Fire a batch of events in parallel, call cb when all complete. */
+  private fireEvents(events: VisualEvent[], cb: () => void): void {
     let remaining = events.length;
+    if (remaining === 0) { cb(); return; }
 
     const finish = () => {
       remaining--;
-      if (remaining <= 0) {
-        this.draining = false;
-        if (this.onDrainComplete) {
-          const cb = this.onDrainComplete;
-          this.onDrainComplete = null;
-          cb();
-        }
-      }
+      if (remaining <= 0) cb();
     };
 
     for (const event of events) {
@@ -91,6 +109,15 @@ export class VisualEventQueue {
         continue;
       }
       handler(event, finish);
+    }
+  }
+
+  private finishDrain(): void {
+    this.draining = false;
+    if (this.onDrainComplete) {
+      const cb = this.onDrainComplete;
+      this.onDrainComplete = null;
+      cb();
     }
   }
 

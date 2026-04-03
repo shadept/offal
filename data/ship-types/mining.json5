@@ -1,0 +1,17 @@
+{
+  id: "mining",
+  name: "Mining Vessel",
+  sizeClass: "medium",
+  deck: {
+    corridor: [3, 5],
+    refinery: [2, 4],
+    drill: [1, 3],
+    cargo: [2, 4],
+    crew_quarters: [1, 2],
+    cantina: [1, 1],
+    storage: [2, 4],
+    medical: [1, 1],
+    weapons: [1, 2],
+  },
+  engines: [2, 4],
+}

@@ -1,0 +1,15 @@
+{
+  id: "science",
+  name: "Science Vessel",
+  sizeClass: "medium",
+  deck: {
+    corridor: [3, 5],
+    lab: [3, 6],
+    sensors: [2, 4],
+    crew_quarters: [2, 3],
+    medical: [1, 2],
+    storage: [1, 2],
+    weapons: [1, 2],
+  },
+  engines: [2, 3],
+}

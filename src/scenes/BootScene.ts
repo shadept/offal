@@ -14,6 +14,7 @@ export const TEX = {
   WALL: 'tile_wall',
   DOOR_CLOSED: 'tile_door_closed',
   DOOR_OPEN: 'tile_door_open',
+  TELEPORTER: 'tile_teleporter',
   VOID: 'tile_void',
   // Ambient
   SPARK: 'particle_spark',
@@ -123,6 +124,32 @@ export class BootScene extends Scene {
       ctx.fillStyle = '#5a4a3a';
       ctx.fillRect(0, 0, 4, S);
       ctx.fillRect(S - 4, 0, 4, S);
+    });
+
+    // ── Teleporter pad ──
+    this.generateTile(TEX.TELEPORTER, (ctx) => {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, S, S);
+      // Diamond shape with glow
+      const cx = S / 2, cy = S / 2, r = S * 0.35;
+      ctx.fillStyle = '#38bdf8';
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#818cf8';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r, cy);
+      ctx.lineTo(cx, cy + r);
+      ctx.lineTo(cx - r, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#e0e7ff';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+      ctx.fill();
     });
 
     // ── Void tile ──

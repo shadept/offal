@@ -1,0 +1,12 @@
+{
+  id: "shuttle",
+  name: "Shuttle",
+  sizeClass: "tiny",
+  deck: {
+    corridor: [0, 1],
+    crew_quarters: [1, 1],
+    cargo: [1, 2],
+    sensors: [0, 1],
+  },
+  engines: [1, 2],
+}

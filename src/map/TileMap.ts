@@ -1,6 +1,11 @@
 /**
- * Tile map data structure.
+ * Tile map data structure — virtual infinite plane.
  * Pure data — no rendering. Owned by game logic, read by visual layer.
+ *
+ * Any tile not explicitly set is VOID. There are no hard boundaries —
+ * the map conceptually extends infinitely in all directions. Internally,
+ * storage is a flat array sized to fit the generated content; coordinates
+ * outside the allocated region silently return VOID / are no-ops.
  *
  * Tile behaviour (blocksMovement, blocksLight) is read from the data
  * registry — the engine has no hardcoded tile logic.
@@ -11,6 +16,7 @@ import { getRegistry } from '../data/loader';
 export const TILE_SIZE = 32; // pixels per tile
 
 export class TileMap {
+  /** Allocated dimensions (internal storage only — NOT map boundaries) */
   readonly width: number;
   readonly height: number;
 
@@ -39,40 +45,50 @@ export class TileMap {
     this.entityBlocksLight = new Uint8Array(size);
   }
 
-  /** Convert (x, y) to flat index */
+  /** Convert (x, y) to flat index. Only valid for coordinates within the
+   *  allocated region — callers iterating the grid can use this directly. */
   idx(x: number, y: number): number {
     return y * this.width + x;
   }
 
-  /** Check bounds */
-  inBounds(x: number, y: number): boolean {
+  /** Check if (x, y) falls within the allocated storage.
+   *  The map is conceptually infinite, but storage is finite. */
+  private inArray(x: number, y: number): boolean {
     return x >= 0 && x < this.width && y >= 0 && y < this.height;
   }
 
-  /** Get tile type index at (x, y) */
+  /** Always true — the map is a virtual infinite plane.
+   *  Unset tiles are VOID. Kept for API compatibility. */
+  inBounds(_x: number, _y: number): boolean {
+    return true;
+  }
+
+  /** Get tile type index at (x, y). Returns 0 (VOID) for unset tiles. */
   get(x: number, y: number): number {
-    if (!this.inBounds(x, y)) return 0; // void index
+    if (!this.inArray(x, y)) return 0;
     return this.tiles[this.idx(x, y)];
   }
 
-  /** Set tile type index at (x, y) */
+  /** Set tile type index at (x, y). No-op for coordinates outside storage. */
   set(x: number, y: number, type: number): void {
-    if (!this.inBounds(x, y)) return;
+    if (!this.inArray(x, y)) return;
     this.tiles[this.idx(x, y)] = type;
   }
 
-  /** Check if a tile blocks movement (tile data OR entity overlay) */
+  /** Check if a tile blocks movement (tile data OR entity overlay).
+   *  Out-of-storage tiles are treated as VOID (blocks movement). */
   blocksMovement(x: number, y: number): boolean {
-    if (!this.inBounds(x, y)) return true;
+    if (!this.inArray(x, y)) return true;
     const idx = this.idx(x, y);
     if (this.entityBlocksMovement[idx]) return true;
     const tileData = getRegistry().tilesByIndex.get(this.tiles[idx]);
     return tileData?.blocksMovement ?? true;
   }
 
-  /** Check if a tile blocks line of sight (tile data OR entity overlay) */
+  /** Check if a tile blocks line of sight (tile data OR entity overlay).
+   *  Out-of-storage tiles are treated as VOID (blocks light). */
   blocksLight(x: number, y: number): boolean {
-    if (!this.inBounds(x, y)) return true;
+    if (!this.inArray(x, y)) return true;
     const idx = this.idx(x, y);
     if (this.entityBlocksLight[idx]) return true;
     const tileData = getRegistry().tilesByIndex.get(this.tiles[idx]);
@@ -81,13 +97,13 @@ export class TileMap {
 
   /** Get visibility at (x, y) */
   getVisibility(x: number, y: number): Visibility {
-    if (!this.inBounds(x, y)) return Visibility.UNSEEN;
+    if (!this.inArray(x, y)) return Visibility.UNSEEN;
     return this.visibility[this.idx(x, y)] as Visibility;
   }
 
   /** Set visibility at (x, y) */
   setVisibility(x: number, y: number, v: Visibility): void {
-    if (!this.inBounds(x, y)) return;
+    if (!this.inArray(x, y)) return;
     this.visibility[this.idx(x, y)] = v;
   }
 
