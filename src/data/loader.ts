@@ -3,7 +3,7 @@
  * All game content is data-driven; no hardcoded content in game logic.
  */
 import JSON5 from 'json5';
-import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, ShipClassData, ArchitectureData, ShipTypeData, RoomSizeData, PartData, DataRegistry } from '../types';
+import type { MaterialData, TileData, SpeciesData, MapData, FactionData, PhysicsRulesData, RoomData, ShipClassData, ArchitectureData, ShipTypeData, RoomSizeData, PartData, ItemData, RecipeData, DataRegistry } from '../types';
 
 // Vite glob imports — `?raw` imports file contents as strings
 const materialFiles = import.meta.glob('/data/materials/*.json5', {
@@ -73,6 +73,18 @@ const roomSizeFiles = import.meta.glob('/data/room-sizes.json5', {
 });
 
 const partFiles = import.meta.glob('/data/parts/*.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const itemFiles = import.meta.glob('/data/items/*.json5', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+const recipeFiles = import.meta.glob('/data/recipes/*.json5', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -257,6 +269,38 @@ function parseParts(): Map<string, PartData> {
   return map;
 }
 
+function parseItems(): Map<string, ItemData> {
+  const map = new Map<string, ItemData>();
+  for (const [path, raw] of Object.entries(itemFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string);
+      const list: ItemData[] = parsed.items ?? [parsed];
+      for (const item of list) {
+        if (item.id) map.set(item.id, item);
+      }
+    } catch (e) {
+      console.error(`Failed to parse item file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
+function parseRecipes(): Map<string, RecipeData> {
+  const map = new Map<string, RecipeData>();
+  for (const [path, raw] of Object.entries(recipeFiles)) {
+    try {
+      const parsed = JSON5.parse(raw as string);
+      const list: RecipeData[] = parsed.recipes ?? [parsed];
+      for (const recipe of list) {
+        if (recipe.id) map.set(recipe.id, recipe);
+      }
+    } catch (e) {
+      console.error(`Failed to parse recipe file ${path}:`, e);
+    }
+  }
+  return map;
+}
+
 function parseRoomSizes(): { byType: Map<string, RoomSizeData>; defaultSize: { w: [number, number]; h: [number, number] } } {
   const byType = new Map<string, RoomSizeData>();
   let defaultSize: { w: [number, number]; h: [number, number] } = { w: [3, 6], h: [3, 6] };
@@ -301,6 +345,8 @@ export function loadData(): DataRegistry {
     shipTypes: parseShipTypes(),
     roomSizes,
     defaultRoomSize,
+    items: parseItems(),
+    recipes: parseRecipes(),
   };
 
   console.log(
@@ -314,7 +360,9 @@ export function loadData(): DataRegistry {
     `${registry.rooms.size} room types, ` +
     `${registry.shipClasses.size} ship classes, ` +
     `${registry.architectures.size} architectures, ` +
-    `${registry.shipTypes.size} ship types`
+    `${registry.shipTypes.size} ship types, ` +
+    `${registry.items.size} items, ` +
+    `${registry.recipes.size} recipes`
   );
   return registry;
 }

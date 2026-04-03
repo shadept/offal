@@ -20,9 +20,13 @@ import { addEntity, addComponent, removeEntity, hasComponent, query } from 'bite
 import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
   Health, Faction, CombatStats, Dead, Door, Teleporter, Body,
+  Item, HeldBy, Inventory,
 } from '../ecs/components';
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
 import { initBodyIndices, spawnBodyForCreature, getPartsOf, clearPartIndex } from '../ecs/body';
+import { initItemIndices, bindInventoryWorld, pickUp, drop, findItemsAtPosition, getItemData, spawnItemOnFloor, canPickUp, getItemsOf } from '../ecs/inventory';
+import { inventoryStore } from '../ui/inventoryStore';
+import InventoryPanel from '../ui/InventoryPanel.svelte';
 import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove, getBlockingEntity, syncDoorOverlays } from '../ecs/systems/movementSystem';
 import { processFireSystem } from '../ecs/systems/fireSystem';
@@ -122,6 +126,8 @@ export class GameScene extends Scene {
   private tabKey!: Phaser.Input.Keyboard.Key;
   private advanceKey!: Phaser.Input.Keyboard.Key;
   private graphKey!: Phaser.Input.Keyboard.Key;
+  private inventoryKey!: Phaser.Input.Keyboard.Key;
+  private inventoryPanelHandle: Record<string, unknown> | null = null;
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
   /** Tracks click-drag panning in sandbox mode */
   private dragPanning = false;
@@ -150,9 +156,11 @@ export class GameScene extends Scene {
     // ── Init faction index mapping ──
     initFactions();
     initBodyIndices(getRegistry());
+    initItemIndices(getRegistry());
 
     // ── ECS setup ──
     this.world = createGameWorld();
+    bindInventoryWorld(this.world);
     this.turnSystem = new TurnSystem();
     this.eventQueue = new VisualEventQueue();
 
@@ -231,6 +239,11 @@ export class GameScene extends Scene {
     }
     Turn.energy[this.playerEid] = 100;
 
+    // Give player an inventory (base capacity = 20 volume units)
+    addComponent(this.world, this.playerEid, Inventory);
+    Inventory.capacity[this.playerEid] = 20;
+    Inventory.usedVolume[this.playerEid] = 0;
+
     // ── Create tile sprites ──
     this.createTileSprites();
 
@@ -275,6 +288,7 @@ export class GameScene extends Scene {
     this.tabKey = this.input.keyboard!.addKey('TAB');
     this.advanceKey = this.input.keyboard!.addKey('N');
     this.graphKey = this.input.keyboard!.addKey('G');
+    this.inventoryKey = this.input.keyboard!.addKey('I');
 
     // ── Ambient: spark emitter on wall edges ──
     this.setupAmbientEffects();
@@ -302,6 +316,49 @@ export class GameScene extends Scene {
 
     // ── Game log ──
     this.gameLogHandle = mount(GameLogPanel, { target: document.body });
+
+    // ── Inventory panel ──
+    this.inventoryPanelHandle = mount(InventoryPanel, {
+      target: document.body,
+      props: {
+        playerEid: this.playerEid,
+        world: this.world,
+        eventQueue: this.eventQueue,
+        turnCount: this.turnSystem.turnCount,
+        maxEid: 10000,
+        playerX: Position.x[this.playerEid],
+        playerY: Position.y[this.playerEid],
+        onDrop: (itemEid: number) => {
+          const x = Position.x[this.playerEid];
+          const y = Position.y[this.playerEid];
+          drop(this.world, this.playerEid, itemEid, x, y);
+          this.createItemSprite(itemEid);
+          this.eventQueue.push({
+            type: 'item_drop',
+            entityId: this.playerEid,
+            data: { itemEid, x, y },
+          });
+          gameLog.push(this.turnSystem.turnCount, 'system',
+            `Dropped ${getItemData(itemEid)?.name ?? 'item'}`);
+        },
+        onPickUp: (itemEid: number) => {
+          if (!canPickUp(this.playerEid, itemEid)) {
+            gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+            return;
+          }
+          const name = getItemData(itemEid)?.name ?? 'item';
+          // Remove sprite before pickup
+          this.removeEntitySprite(itemEid);
+          pickUp(this.world, this.playerEid, itemEid);
+          this.eventQueue.push({
+            type: 'item_pickup',
+            entityId: this.playerEid,
+            data: { itemEid, name },
+          });
+          gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${name}`);
+        },
+      },
+    });
     setDamageLogContext(
       (eid: number) => {
         if (eid === this.playerEid) return 'You';
@@ -390,6 +447,10 @@ export class GameScene extends Scene {
       unmount(this.sandboxPanelHandle as ReturnType<typeof mount>);
       this.sandboxPanelHandle = null;
     }
+    if (this.inventoryPanelHandle) {
+      unmount(this.inventoryPanelHandle as ReturnType<typeof mount>);
+      this.inventoryPanelHandle = null;
+    }
   }
 
   update(time: number, delta: number): void {
@@ -409,6 +470,11 @@ export class GameScene extends Scene {
     // ── Graph overlay toggle (G key) ──
     if (Phaser.Input.Keyboard.JustDown(this.graphKey)) {
       this.toggleShipGraphOverlay();
+    }
+
+    // ── Inventory toggle (I key) ──
+    if (Phaser.Input.Keyboard.JustDown(this.inventoryKey)) {
+      inventoryStore.toggle();
     }
 
     // ── Sandbox mode ──
@@ -577,6 +643,17 @@ export class GameScene extends Scene {
     }
   }
 
+  /** Create a sprite for an item entity on the floor. */
+  private createItemSprite(eid: number): void {
+    if (this.entitySprites.has(eid)) return;
+    this.createEntitySprite(eid, undefined, TEX.ITEM);
+  }
+
+  /** Remove an entity sprite by eid. */
+  private removeEntitySprite(eid: number): void {
+    this.destroyEntitySprite(eid);
+  }
+
   /** Sync entity sprite position with ECS (for non-animated updates) */
   private syncEntitySprite(eid: number): void {
     const sprite = this.entitySprites.get(eid);
@@ -590,6 +667,7 @@ export class GameScene extends Scene {
 
   private handlePlayerInput(): void {
     if (this.inputCooldown > 0) return;
+    if (inventoryStore.open) return; // Inventory is open — don't move
 
     let dx = 0;
     let dy = 0;
@@ -709,6 +787,24 @@ export class GameScene extends Scene {
 
     // Try to move
     const result = tryMove(this.playerEid, dx, dy, this.tileMap, this.eventQueue, this.world);
+
+    // Auto-pickup: if player moved onto a tile with items, pick up if only one + space
+    if (result.cost > 0) {
+      const px = Position.x[this.playerEid];
+      const py = Position.y[this.playerEid];
+      const floorItems = findItemsAtPosition(px, py, 10000);
+      if (floorItems.length === 1 && canPickUp(this.playerEid, floorItems[0])) {
+        const itemEid = floorItems[0];
+        const name = getItemData(itemEid)?.name ?? 'item';
+        this.removeEntitySprite(itemEid);
+        pickUp(this.world, this.playerEid, itemEid);
+        gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${name}`);
+        inventoryStore.notify();
+      } else if (floorItems.length > 1) {
+        // Multiple items — open inventory to show floor items
+        inventoryStore.openPanel();
+      }
+    }
 
     // Deduct energy — bumping a wall still costs a turn (like waiting)
     const cost = result.cost > 0 ? result.cost : 100;
@@ -1171,6 +1267,34 @@ export class GameScene extends Scene {
       this.destroyEntitySprite(event.entityId);
       onComplete();
     });
+
+    // ── Item pickup — brief scale-down on item sprite ──
+    this.eventQueue.registerHandler('item_pickup', (_event: VisualEvent, onComplete: () => void) => {
+      onComplete();
+    });
+
+    // ── Item drop — sprite appears at drop location ──
+    this.eventQueue.registerHandler('item_drop', (event: VisualEvent, onComplete: () => void) => {
+      const itemEid = event.data.itemEid as number;
+      if (hasComponent(this.world, itemEid, Position) && !this.entitySprites.has(itemEid)) {
+        this.createItemSprite(itemEid);
+      }
+      onComplete();
+    });
+
+    // ── Craft success — brief flash on crafter ──
+    this.eventQueue.registerHandler('craft_success', (event: VisualEvent, onComplete: () => void) => {
+      const sprite = this.entitySprites.get(event.entityId);
+      if (!sprite || this.eventQueue.skipMode) {
+        onComplete();
+        return;
+      }
+      sprite.setTint(0x55ffbb);
+      this.time.delayedCall(200, () => {
+        sprite.clearTint();
+        onComplete();
+      });
+    });
   }
 
   /** Remove a dead entity from world and visual layer. */
@@ -1326,6 +1450,11 @@ export class GameScene extends Scene {
       spawnBodyForCreature(this.world, this.playerEid, playerSpecies, registry);
     }
     Turn.energy[this.playerEid] = 100;
+
+    // Give player an inventory
+    addComponent(this.world, this.playerEid, Inventory);
+    Inventory.capacity[this.playerEid] = 20;
+    Inventory.usedVolume[this.playerEid] = 0;
 
     // ── Nebula background ──
     const worldW = this.tileMap.width * TILE_SIZE;

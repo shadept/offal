@@ -27,6 +27,7 @@ export const TEX = {
   EXPLOSION_PARTICLE: 'particle_explosion',
   NEBULA: 'bg_nebula',
   SEVERED_PART: 'entity_severed_part',
+  ITEM: 'entity_item',
 } as const;
 
 /** Get the texture key for a species. Convention: `entity_{speciesId}` */
@@ -357,6 +358,26 @@ export class BootScene extends Scene {
       ctx.fillStyle = '#aa4444';
       ctx.beginPath();
       ctx.ellipse(S / 2 - 1, S / 2 - 1, S * 0.12, S * 0.1, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // ── Item on floor (small cyan diamond) ──
+    this.generateTile(TEX.ITEM, (ctx) => {
+      ctx.fillStyle = '#338888';
+      ctx.beginPath();
+      ctx.moveTo(S / 2, S * 0.3);
+      ctx.lineTo(S * 0.65, S / 2);
+      ctx.lineTo(S / 2, S * 0.7);
+      ctx.lineTo(S * 0.35, S / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#55bbbb';
+      ctx.beginPath();
+      ctx.moveTo(S / 2, S * 0.36);
+      ctx.lineTo(S * 0.58, S / 2);
+      ctx.lineTo(S / 2, S * 0.64);
+      ctx.lineTo(S * 0.42, S / 2);
+      ctx.closePath();
       ctx.fill();
     });
 

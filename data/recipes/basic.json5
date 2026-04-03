@@ -1,0 +1,67 @@
+{
+  recipes: [
+    {
+      id: "molotov",
+      name: "Molotov Cocktail",
+      description: "A bottle stuffed with cloth. Light it and throw.",
+      inputs: [
+        {
+          tags: ["cloth", "flammable"],
+          quantity: { min: 1 },
+          consumed: true,
+        },
+        {
+          tags: ["vessel", "container"],
+          quantity: { min: 1 },
+          consumed: true,
+        },
+      ],
+      output: {
+        id: "molotov_cocktail",
+        quantity: 1,
+      },
+    },
+    {
+      id: "makeshift_scope",
+      name: "Makeshift Scope",
+      description: "Wire holds a lens in place. Improves aim at range.",
+      inputs: [
+        {
+          tags: ["wire", "conductive"],
+          quantity: { min: 1 },
+          consumed: true,
+        },
+        {
+          tags: ["lens", "optic"],
+          quantity: { min: 1 },
+          consumed: true,
+        },
+      ],
+      output: {
+        id: "makeshift_scope",
+        quantity: 1,
+      },
+    },
+    {
+      id: "padded_club",
+      name: "Padded Club",
+      description: "A pipe wrapped in cloth. Hits hard, absorbs shock.",
+      inputs: [
+        {
+          tags: ["blunt", "weapon"],
+          quantity: { min: 1 },
+          consumed: true,
+        },
+        {
+          tags: ["cloth", "wrapping"],
+          quantity: { min: 1 },
+          consumed: true,
+        },
+      ],
+      output: {
+        id: "padded_club",
+        quantity: 1,
+      },
+    },
+  ],
+}

@@ -118,6 +118,26 @@ export const CachedCapacity = soa({
   structuralIntegrity: new Uint8Array(MAX_ENTITIES),
 });
 
+// ── Item system ──────────────────────────────────────────────
+
+// Item identity — links item entity to its data definition
+export const Item = soa({
+  itemDefIdx: new Uint16Array(MAX_ENTITIES),   // index into item data registry
+  materialIdx: new Uint8Array(MAX_ENTITIES),   // index into material registry
+  stackCount: new Uint8Array(MAX_ENTITIES),    // 1 for non-stackable, N for stacks
+});
+
+// HeldBy — links an item to the creature carrying it (mutually exclusive with Position)
+export const HeldBy = soa({
+  ownerEid: new Int32Array(MAX_ENTITIES),      // creature entity ID
+});
+
+// Inventory — capacity component on creatures (and body-part containers)
+export const Inventory = soa({
+  capacity: new Uint16Array(MAX_ENTITIES),     // max volume units
+  usedVolume: new Uint16Array(MAX_ENTITIES),   // current volume used
+});
+
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};

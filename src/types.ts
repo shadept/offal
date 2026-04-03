@@ -21,7 +21,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed' | 'explosion' | 'part_hit' | 'part_severed' | 'part_deactivated' | 'part_destroyed';
+export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed' | 'explosion' | 'part_hit' | 'part_severed' | 'part_deactivated' | 'part_destroyed' | 'item_pickup' | 'item_drop' | 'craft_success';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {
@@ -306,6 +306,63 @@ export interface RoomSizeData {
   h: [number, number];
 }
 
+/** Item size → volume units mapping */
+export const ITEM_SIZE_VOLUME: Record<string, number> = {
+  tiny: 1,
+  small: 2,
+  medium: 4,
+  large: 8,
+  huge: 16,
+};
+
+/** Item definition loaded from data/items/*.json5 */
+export interface ItemData {
+  id: string;
+  name: string;
+  description: string;
+  material: string;
+  shape: string;   // rod | point | sheet | vessel | chunk | composite
+  size: string;     // tiny | small | medium | large | huge
+  tags: string[];
+  stackable?: boolean;
+  maxStack?: number;
+  fluidCapacity?: number | null;
+  contents?: string | null;
+  damage?: number | null;
+  protection?: number | null;
+  potionEffect?: string | null;
+}
+
+/** Recipe input definition */
+export interface RecipeInput {
+  tags: string[];
+  quantity?: { min: number };
+  consumed?: boolean;
+}
+
+/** Recipe output — either a specific item or derived from inputs */
+export interface RecipeOutput {
+  id?: string;
+  derive?: {
+    nameFrom: string;
+    materialFrom: number;
+    tagsFrom: number[];
+    sizeFrom: string;
+  };
+  quantity: number;
+}
+
+/** Recipe definition loaded from data/recipes/*.json5 */
+export interface RecipeData {
+  id: string;
+  name?: string;
+  description?: string;
+  inputs: RecipeInput[];
+  conditions?: { environment?: string }[];
+  output: RecipeOutput;
+  byproducts?: { id: string; quantity: number }[];
+}
+
 /** Data registry — holds all loaded JSON5 data */
 export interface DataRegistry {
   materials: Map<string, MaterialData>;
@@ -322,4 +379,6 @@ export interface DataRegistry {
   shipTypes: Map<string, ShipTypeData>;
   roomSizes: Map<string, RoomSizeData>;
   defaultRoomSize: { w: [number, number]; h: [number, number] };
+  items: Map<string, ItemData>;
+  recipes: Map<string, RecipeData>;
 }

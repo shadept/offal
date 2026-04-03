@@ -1,0 +1,34 @@
+{
+  items: [
+    {
+      id: "molotov_cocktail",
+      name: "Molotov Cocktail",
+      description: "A bottle stuffed with burning cloth. Throw to ignite an area.",
+      material: "glass",
+      shape: "vessel",
+      size: "small",
+      tags: ["glass", "weapon", "thrown", "fire", "flammable"],
+      damage: 6,
+    },
+    {
+      id: "makeshift_scope",
+      name: "Makeshift Scope",
+      description: "A lens held in place by coiled wire. Extends visual range.",
+      material: "glass",
+      shape: "composite",
+      size: "tiny",
+      tags: ["optic", "precision", "attachment"],
+    },
+    {
+      id: "padded_club",
+      name: "Padded Club",
+      description: "A metal pipe wrapped in cloth. Solid and shock-absorbing.",
+      material: "steel",
+      shape: "rod",
+      size: "medium",
+      tags: ["metal", "blunt", "weapon", "padded"],
+      damage: 6,
+      protection: 1,
+    },
+  ],
+}
