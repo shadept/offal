@@ -37,7 +37,7 @@ src/              # Game source
 
 1. **Logic and visual layers are ALWAYS separate.** Game state advances in discrete turns. The visual layer renders at 60fps independently. Logic never waits on rendering. Rendering never mutates game state.
 
-2. **Visual event queue.** When a turn resolves, logic produces an ordered queue of visual events (`move`, `projectile`, `fire_spread`, `explosion`, etc.). The visual layer drains the queue sequentially. The next turn does not advance until the queue is empty. Players can skip/accelerate. This is event-driven visual interpolation — see `docs/claude/architecture.md`.
+2. **Visual event queue.** When a turn resolves, logic produces an ordered queue of visual events (`move`, `projectile`, `fire_spread`, `explosion`, etc.). The visual layer drains the queue sequentially. The next turn does not advance until the queue is empty. Players can skip/accelerate. This is event-driven visual interpolation — see `docs/architecture.md`.
 
 3. **Phaser 4 + bitECS.** Phaser 4 owns rendering, input, and asset loading. bitECS owns all game state as components/systems. No game logic in Phaser scenes — scenes orchestrate, ECS decides.
 

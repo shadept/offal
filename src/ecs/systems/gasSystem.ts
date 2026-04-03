@@ -12,9 +12,10 @@
  * Architecture: logic only. Pushes visual events to the queue.
  */
 import { query, hasComponent, addComponent } from 'bitecs';
-import { Position, Health, Dead } from '../components';
+import { Position, Health, Dead, Body, PartMaterial, AttachedTo } from '../components';
 import { applyDamage } from '../damage';
 import { getRegistry } from '../../data/loader';
+import { getPartsOf, getMaterialId } from '../body';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
 import type { VisualEventQueue } from '../../visual/EventQueue';
@@ -166,10 +167,25 @@ export function processGasSystem(
         const species = speciesId ? registry.species.get(speciesId) : null;
         if (!species?.spawnTags?.includes('organic')) continue;
 
-        applyDamage(eid, gasRules.toxicDamagePerTurn, {
-          source: 'toxic_gas',
-          damageType: 'energy',
-        }, world, eventQueue);
+        // For Body entities, target organic-material parts specifically
+        if (hasComponent(world, eid, Body)) {
+          const organicParts: number[] = [];
+          for (const pEid of getPartsOf(eid)) {
+            if (Health.hp[pEid] <= 0) continue;
+            if (!hasComponent(world, pEid, AttachedTo)) continue;
+            const matId = getMaterialId(PartMaterial.materialId[pEid]);
+            if (matId === 'organic') organicParts.push(pEid);
+          }
+          if (organicParts.length === 0) continue; // no organic parts left
+          const targetPart = organicParts[Math.floor(Math.random() * organicParts.length)];
+          applyDamage(eid, gasRules.toxicDamagePerTurn, {
+            source: 'toxic_gas', damageType: 'energy', targetPartEid: targetPart,
+          }, world, eventQueue);
+        } else {
+          applyDamage(eid, gasRules.toxicDamagePerTurn, {
+            source: 'toxic_gas', damageType: 'energy',
+          }, world, eventQueue);
+        }
         break; // one toxic gas hit per entity per turn
       }
     }

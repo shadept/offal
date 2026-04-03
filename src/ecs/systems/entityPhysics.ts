@@ -70,6 +70,15 @@ export class EntityPhysicsMap {
     }
   }
 
+  /** Remove a specific surface state from an entity */
+  remove(eid: number, state: string): void {
+    const m = this.states.get(eid);
+    if (m) {
+      m.delete(state);
+      if (m.size === 0) this.states.delete(eid);
+    }
+  }
+
   /** Remove an entity entirely (on death/removal) */
   delete(eid: number): void {
     this.states.delete(eid);

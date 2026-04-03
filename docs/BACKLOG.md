@@ -170,16 +170,19 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 ## Phase 7 — Crafting & Items
 *Goal: pick up two items, combine them, get a result.*
 
-- [ ] 🔴 Item component: material, shape, size, tags
-- [ ] 🔴 Inventory
-- [ ] 🔴 Pick up / drop
-- [ ] 🔴 Recipe loader + matcher
-- [ ] 🔴 Craft action
+- [x] ✅ Item component: material, shape, size, tags
+- [x] ✅ Inventory with capacity tracking
+- [x] ✅ Pick up / drop (auto-pickup on single item + space)
+- [x] ✅ Recipe loader + matcher (tag-based with crude composite fallback)
+- [x] ✅ Craft action (select 2+ items, choose recipe or crude composite)
+- [x] ✅ Inventory UI panel (I key toggle)
+- [x] ✅ Visual events: item_pickup, item_drop, craft_success
+- [x] ✅ Data: 6 basic items, 3 crafted items, 3 recipes
 - [ ] 🟡 Potion system: shuffled identities per run
 - [ ] 🟡 Fluid dipping
 - [ ] ⚪ LLM fallback (Phase 11)
 
-**Exit criteria**: pick up two items, craft them, get a result.
+**Exit criteria**: pick up two items, craft them, get a result. ✅
 
 ---
 

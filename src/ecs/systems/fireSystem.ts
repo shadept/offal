@@ -9,11 +9,13 @@
  * Never renders directly.
  */
 import { query, hasComponent, addComponent } from 'bitecs';
-import { Position, Health, Dead, Door } from '../components';
+import { Position, Health, Dead, Door, Body, PartMaterial, AttachedTo } from '../components';
 import { getRegistry } from '../../data/loader';
 import { applyDamage } from '../damage';
+import { getPartsOf, getMaterialId, getPartData } from '../body';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
+import type { EntityPhysicsMap } from './entityPhysics';
 import type { VisualEventQueue } from '../../visual/EventQueue';
 import type { PhysicsRuleData } from '../../types';
 
@@ -24,6 +26,11 @@ const ADJ = [
   { dx: 0, dy: -1 },
   { dx: 0, dy: 1 },
 ];
+
+/** How many turns a body part burns after ignition (refreshed while on fire tile) */
+const PART_FIRE_DURATION = 3;
+/** Damage per burning part per turn when smoldering (away from fire tile) */
+const PART_BURN_DAMAGE = 1;
 
 /**
  * Run fire system for one turn.
@@ -36,6 +43,7 @@ export function processFireSystem(
   tileMap: TileMap,
   physics: TilePhysicsMap,
   world: object,
+  entityPhysics: EntityPhysicsMap,
   eventQueue: VisualEventQueue,
 ): void {
   const registry = getRegistry();
@@ -123,7 +131,7 @@ export function processFireSystem(
     }
 
     // Damage entities on this tile
-    damageEntitiesOnTile(x, y, damagePerTurn, world, eventQueue);
+    damageEntitiesOnTile(x, y, damagePerTurn, world, entityPhysics, eventQueue);
 
     // Damage door entities on this tile (doors burn down)
     damageDoorOnTile(x, y, damagePerTurn, tileMap, world, eventQueue);
@@ -247,7 +255,7 @@ export function processFireSystem(
           }
 
           // Damage entities in blast
-          damageEntitiesOnTile(nx, ny, damage, world, eventQueue);
+          damageEntitiesOnTile(nx, ny, damage, world, entityPhysics, eventQueue);
           damageDoorOnTile(nx, ny, damage, tileMap, world, eventQueue);
         }
       }
@@ -266,24 +274,160 @@ export function processFireSystem(
       });
     }
   }
+
+  // Per-part burning: smoldering damage, body-internal fire spread, wet suppression
+  processPartBurning(world, physics, entityPhysics, eventQueue);
 }
 
-/** Damage all living entities standing on a tile. */
+/**
+ * Damage all living entities standing on a tile.
+ * Body entities: only flammable parts are targeted; fireproof creatures take no damage.
+ * Non-body entities: direct damage as before.
+ */
 function damageEntitiesOnTile(
   x: number,
   y: number,
   damage: number,
   world: object,
+  entityPhysics: EntityPhysicsMap,
   eventQueue: VisualEventQueue,
 ): void {
+  const registry = getRegistry();
   const entities = query(world, [Position, Health]);
   for (const eid of entities) {
     if (hasComponent(world, eid, Dead)) continue;
     if (Position.x[eid] !== x || Position.y[eid] !== y) continue;
-    // Skip doors — handled separately by damageDoorOnTile
     if (hasComponent(world, eid, Door)) continue;
 
+    // Body entities — material-aware per-part targeting
+    if (hasComponent(world, eid, Body)) {
+      const parts = getPartsOf(eid);
+
+      // Collect flammable external parts and ignite them
+      const flammableParts: { eid: number; weight: number }[] = [];
+      for (const pEid of parts) {
+        if (Health.hp[pEid] <= 0) continue;
+        if (!hasComponent(world, pEid, AttachedTo)) continue;
+        const partDef = getPartData(pEid);
+        if (partDef?.depth !== 'external') continue;
+
+        const matId = getMaterialId(PartMaterial.materialId[pEid]);
+        const mat = matId ? registry.materials.get(matId) : null;
+        if ((mat?.flammability ?? 0) <= 0) continue;
+
+        // Ignite this part (wet parts resist)
+        if (!entityPhysics.has(pEid, 'wet')) {
+          entityPhysics.set(pEid, 'on_fire', PART_FIRE_DURATION);
+        }
+
+        flammableParts.push({ eid: pEid, weight: partDef?.hitWeight ?? 1 });
+      }
+
+      if (flammableParts.length === 0) continue; // fireproof creature
+
+      // Weighted random selection among flammable parts
+      let totalWeight = 0;
+      for (const c of flammableParts) totalWeight += c.weight;
+      let targetPart = flammableParts[0].eid;
+      let roll = Math.random() * totalWeight;
+      for (const c of flammableParts) {
+        roll -= c.weight;
+        if (roll <= 0) { targetPart = c.eid; break; }
+      }
+
+      applyDamage(eid, damage, {
+        source: 'fire', damageType: 'energy', targetPartEid: targetPart,
+      }, world, eventQueue);
+      continue;
+    }
+
+    // Non-body entities: direct damage
     applyDamage(eid, damage, { source: 'fire', damageType: 'energy' }, world, eventQueue);
+  }
+}
+
+/**
+ * Per-part burning — runs once per turn for ALL body entities.
+ * - Smoldering damage to each burning part (only when not on a fire tile,
+ *   since tile fire already dealt damage via damageEntitiesOnTile).
+ * - Fire spreads from burning parts to other flammable parts on the same body.
+ * - Wet parts have fire suppressed.
+ */
+function processPartBurning(
+  world: object,
+  physics: TilePhysicsMap,
+  entityPhysics: EntityPhysicsMap,
+  eventQueue: VisualEventQueue,
+): void {
+  const registry = getRegistry();
+  const entities = query(world, [Position, Health, Body]);
+
+  for (const eid of entities) {
+    if (hasComponent(world, eid, Dead)) continue;
+
+    const onFireTile = physics.hasSurfaceState(Position.x[eid], Position.y[eid], 'on_fire');
+
+    const parts = getPartsOf(eid);
+    const burningParts: number[] = [];
+    const flammableNotBurning: number[] = [];
+
+    for (const pEid of parts) {
+      if (Health.hp[pEid] <= 0) continue;
+      if (!hasComponent(world, pEid, AttachedTo)) continue;
+
+      if (entityPhysics.has(pEid, 'on_fire')) {
+        // Wet suppresses fire on this part
+        if (entityPhysics.has(pEid, 'wet')) {
+          entityPhysics.remove(pEid, 'on_fire');
+          eventQueue.push({
+            type: 'part_fire_suppressed',
+            entityId: eid,
+            data: { partEid: pEid, partName: getPartData(pEid)?.name ?? 'part' },
+          });
+          continue;
+        }
+        burningParts.push(pEid);
+      } else {
+        // Candidate for fire spread — must be external, flammable, not wet
+        const partDef = getPartData(pEid);
+        if (partDef?.depth !== 'external') continue;
+        if (entityPhysics.has(pEid, 'wet')) continue;
+
+        const matId = getMaterialId(PartMaterial.materialId[pEid]);
+        const mat = matId ? registry.materials.get(matId) : null;
+        if ((mat?.flammability ?? 0) > 0) {
+          flammableNotBurning.push(pEid);
+        }
+      }
+    }
+
+    if (burningParts.length === 0) continue;
+
+    // Smoldering damage — only when NOT on a fire tile (tile fire already dealt damage)
+    if (!onFireTile) {
+      for (const pEid of burningParts) {
+        applyDamage(eid, PART_BURN_DAMAGE, {
+          source: 'fire', damageType: 'energy', targetPartEid: pEid,
+        }, world, eventQueue);
+      }
+    }
+
+    // Fire spread: one flammable part may ignite per turn (chance = flammability)
+    if (flammableNotBurning.length > 0) {
+      const targetPart = flammableNotBurning[
+        Math.floor(Math.random() * flammableNotBurning.length)
+      ];
+      const matId = getMaterialId(PartMaterial.materialId[targetPart]);
+      const mat = matId ? registry.materials.get(matId) : null;
+      if (Math.random() < (mat?.flammability ?? 0)) {
+        entityPhysics.set(targetPart, 'on_fire', PART_FIRE_DURATION);
+        eventQueue.push({
+          type: 'part_ignite',
+          entityId: eid,
+          data: { partEid: targetPart, partName: getPartData(targetPart)?.name ?? 'part' },
+        });
+      }
+    }
   }
 }
 

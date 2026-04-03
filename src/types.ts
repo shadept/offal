@@ -21,7 +21,7 @@ export enum TurnPhase {
 }
 
 /** Visual event types */
-export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed' | 'explosion' | 'part_hit' | 'part_severed' | 'part_deactivated' | 'part_destroyed' | 'item_pickup' | 'item_drop' | 'craft_success';
+export type VisualEventType = 'move' | 'teleport' | 'idle' | 'door_open' | 'door_close' | 'hit_flash' | 'death' | 'fire_spread' | 'fluid_spread' | 'gas_spread' | 'tile_destroyed' | 'explosion' | 'part_hit' | 'part_severed' | 'part_deactivated' | 'part_destroyed' | 'part_ignite' | 'part_fire_suppressed' | 'item_pickup' | 'item_drop' | 'craft_success';
 
 /** A visual event produced by logic, consumed by the renderer */
 export interface VisualEvent {

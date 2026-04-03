@@ -10,8 +10,9 @@
  * Architecture: logic only. Pushes visual events to the queue.
  */
 import { query, hasComponent } from 'bitecs';
-import { Position, Health, Dead } from '../components';
+import { Position, Health, Dead, Body, AttachedTo } from '../components';
 import { getRegistry } from '../../data/loader';
+import { getPartsOf, getPartData } from '../body';
 import type { TileMap } from '../../map/TileMap';
 import type { TilePhysicsMap } from './tilePhysics';
 import type { EntityPhysicsMap } from './entityPhysics';
@@ -193,6 +194,16 @@ export function processFluidSystem(
         const surfaceState = FLUID_TAG_TO_STATE[tag];
         if (surfaceState) {
           entityPhysics.set(eid, surfaceState, duration);
+          // Per-part contamination for Body entities (external parts contact fluid)
+          if (hasComponent(world, eid, Body)) {
+            for (const pEid of getPartsOf(eid)) {
+              if (Health.hp[pEid] <= 0) continue;
+              if (!hasComponent(world, pEid, AttachedTo)) continue;
+              const partDef = getPartData(pEid);
+              if (partDef?.depth !== 'external') continue;
+              entityPhysics.set(pEid, surfaceState, duration);
+            }
+          }
         }
       }
     }

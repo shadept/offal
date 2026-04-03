@@ -35,6 +35,8 @@ export interface DamageOpts {
   source: string;
   attackerEid?: number;
   damageType?: DamageType;
+  /** If set, bypass random part selection and target this specific part. */
+  targetPartEid?: number;
 }
 
 export interface DamageResult {
@@ -83,7 +85,21 @@ function applyDamageToBody(
   world: object,
   eventQueue: VisualEventQueue,
 ): DamageResult {
-  const partEid = selectTargetPart(bodyEid, opts.damageType, world);
+  // Use caller-specified part if valid, otherwise fall back to weighted random
+  let partEid = -1;
+  if (opts.targetPartEid != null && opts.targetPartEid >= 0) {
+    const pEid = opts.targetPartEid;
+    if (
+      Health.hp[pEid] > 0 &&
+      hasComponent(world, pEid, AttachedTo) &&
+      AttachedTo.parentEid[pEid] === bodyEid
+    ) {
+      partEid = pEid;
+    }
+  }
+  if (partEid < 0) {
+    partEid = selectTargetPart(bodyEid, opts.damageType, world);
+  }
   if (partEid < 0) {
     // No targetable parts — damage goes directly to body HP
     Health.hp[bodyEid] = Math.max(0, Health.hp[bodyEid] - damage);
