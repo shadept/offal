@@ -8,10 +8,11 @@
 import { addEntity, addComponent, removeComponent, hasComponent } from 'bitecs';
 import { getRegistry } from '../data/loader';
 import {
-  Health, Position, Renderable,
+  Health, Position, Renderable, Dead, HeldBy,
   PartIdentity, PartMaterial, AttachedTo, Body, CachedCapacity, Turn,
 } from './components';
-import type { DataRegistry, PartData, SpeciesData, CapacityType } from '../types';
+import { removeItemFromOwner } from './inventory';
+import type { DataRegistry, PartData, SpeciesData, CapacityType, PartRole } from '../types';
 
 // ═══════════════════════════════════════════════════════════
 // PART TYPE ENUM
@@ -393,4 +394,171 @@ export function getPartData(partEid: number): PartData | undefined {
   const defId = getPartDefId(PartIdentity.partDefId[partEid]);
   if (!defId) return undefined;
   return getRegistry().parts.get(defId);
+}
+
+// ════════════════════════��══════════════════════════════════
+// DYNAMIC SLOT REGISTRATION
+// ═══════════════════════════════════════════════════════════
+
+let nextDynamicSlotIdx = 10000; // high offset to avoid collisions with static slots
+
+/**
+ * Register a dynamic slot name for parts attached beyond the species blueprint.
+ * Returns the numeric index for the new slot.
+ */
+export function registerDynamicSlot(name: string): number {
+  const existing = slotNameToIndex.get(name);
+  if (existing !== undefined) return existing;
+  const idx = nextDynamicSlotIdx++;
+  slotNameToIndex.set(name, idx);
+  indexToSlotName.set(idx, name);
+  return idx;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SLOT QUERIES
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Get a map of occupied slots for a creature: slotIdx → partEid.
+ */
+export function getOccupiedSlots(bodyEid: number): Map<number, number> {
+  const result = new Map<number, number>();
+  const parts = getPartsOf(bodyEid);
+  for (const pEid of parts) {
+    result.set(AttachedTo.slotId[pEid], pEid);
+  }
+  return result;
+}
+
+/**
+ * Find the first empty blueprint slot matching a given role, or allocate a dynamic slot.
+ * Returns the slot index to use for attachment.
+ */
+function findSlotForRole(bodyEid: number, role: PartRole): number {
+  const registry = getRegistry();
+  const speciesId = getSpeciesId(Body.speciesIdx[bodyEid]);
+  const species = speciesId ? registry.species.get(speciesId) : undefined;
+  const occupied = getOccupiedSlots(bodyEid);
+
+  // Try blueprint slots first
+  if (species?.parts) {
+    for (const slot of species.parts) {
+      if (slot.role === role) {
+        const slotIdx = getSlotIndex(slot.id);
+        if (!occupied.has(slotIdx)) return slotIdx;
+      }
+    }
+  }
+
+  // All blueprint slots for this role are occupied — create a dynamic slot
+  // Count existing parts of this role to generate a unique name
+  let count = 0;
+  const parts = getPartsOf(bodyEid);
+  for (const pEid of parts) {
+    const defId = getPartDefId(PartIdentity.partDefId[pEid]);
+    const partDef = defId ? registry.parts.get(defId) : undefined;
+    if (partDef?.type === role) count++;
+  }
+  const dynamicName = `${role}_extra_${count}`;
+  return registerDynamicSlot(dynamicName);
+}
+
+// ═══════════════════════════════════════════════════════════
+// COMPATIBILITY
+// ════════════════════���══════════════════════════════════════
+
+/**
+ * Check if a part is compatible with a creature's body.
+ * roleMatch: part role matches any slot role in the species blueprint.
+ * materialMatch: part material is in the species' compatibleWith list.
+ */
+export function checkPartCompatibility(
+  partEid: number,
+  bodyEid: number,
+): { roleMatch: boolean; materialMatch: boolean } {
+  const registry = getRegistry();
+  const partDef = getPartData(partEid);
+  const speciesId = getSpeciesId(Body.speciesIdx[bodyEid]);
+  const species = speciesId ? registry.species.get(speciesId) : undefined;
+
+  // Role match — the part's type is a valid role for any slot in this species
+  let roleMatch = false;
+  if (partDef && species?.parts) {
+    const roles = new Set(species.parts.map(s => s.role));
+    roleMatch = roles.has(partDef.type);
+  }
+  // Also allow roles beyond the blueprint (any valid part role matches)
+  if (partDef) roleMatch = true;
+
+  // Material match — part material is in species' compatibility list
+  let materialMatch = true;
+  if (partDef && species?.compatibleWith) {
+    const matId = getMaterialId(PartMaterial.materialId[partEid]);
+    materialMatch = matId ? species.compatibleWith.includes(matId) : false;
+  }
+
+  return { roleMatch, materialMatch };
+}
+
+// ═══════════════════════════════��═══════════════════════════
+// ATTACH PART
+// ══════════════════════════════════════════���════════════════
+
+/**
+ * Attach a part entity to a creature's body.
+ * Mirrors detachPart — removes floor/inventory presence, adds to body.
+ * If slotName is not provided, auto-finds the best slot for the part's role.
+ * Returns true if attachment succeeded.
+ */
+export function attachPart(
+  world: object,
+  partEid: number,
+  bodyEid: number,
+  slotName?: string,
+): boolean {
+  // Guards
+  if (hasComponent(world, partEid, Dead)) return false;
+  if (hasComponent(world, partEid, AttachedTo)) return false;
+  if (hasComponent(world, bodyEid, Dead)) return false;
+  if (!hasComponent(world, bodyEid, Body)) return false;
+
+  const partDef = getPartData(partEid);
+  if (!partDef) return false;
+
+  // Determine target slot
+  let slotIdx: number;
+  if (slotName) {
+    slotIdx = getSlotIndex(slotName);
+    if (slotIdx === 65535) {
+      slotIdx = registerDynamicSlot(slotName);
+    }
+  } else {
+    slotIdx = findSlotForRole(bodyEid, partDef.type as PartRole);
+  }
+
+  // Remove from floor (if on floor)
+  if (hasComponent(world, partEid, Position)) {
+    removeComponent(world, partEid, Position);
+  }
+  if (hasComponent(world, partEid, Renderable)) {
+    removeComponent(world, partEid, Renderable);
+  }
+
+  // Remove from inventory (if held)
+  if (hasComponent(world, partEid, HeldBy)) {
+    removeItemFromOwner(world, partEid);
+  }
+
+  // Attach to body
+  addComponent(world, partEid, AttachedTo);
+  AttachedTo.parentEid[partEid] = bodyEid;
+  AttachedTo.slotId[partEid] = slotIdx;
+  addToPartIndex(bodyEid, partEid);
+
+  // Recalculate body aggregates
+  recalcCapacities(bodyEid);
+  updateSpeedFromCapacity(bodyEid);
+
+  return true;
 }

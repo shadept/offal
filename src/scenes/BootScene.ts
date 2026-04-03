@@ -28,12 +28,46 @@ export const TEX = {
   NEBULA: 'bg_nebula',
   SEVERED_PART: 'entity_severed_part',
   ITEM: 'entity_item',
+  // Body part silhouettes (UI icons)
+  PART_ARM: 'part_sil_arm',
+  PART_LEG: 'part_sil_leg',
+  PART_HEAD: 'part_sil_head',
+  PART_TORSO: 'part_sil_torso',
+  PART_ORGAN: 'part_sil_organ',
+  PART_SENSOR: 'part_sil_sensor',
+  PART_MOUTH: 'part_sil_mouth',
+  PART_SEGMENT: 'part_sil_segment',
+  PART_ROTOR: 'part_sil_rotor',
 } as const;
 
 /** Get the texture key for a species. Convention: `entity_{speciesId}` */
 export function speciesTexKey(speciesId: string): string {
   return `entity_${speciesId}`;
 }
+
+/** Map a part role string to its silhouette texture key. */
+const ROLE_TO_SIL: Record<string, string> = {
+  arm: TEX.PART_ARM,
+  leg: TEX.PART_LEG,
+  head: TEX.PART_HEAD,
+  torso: TEX.PART_TORSO,
+  organ: TEX.PART_ORGAN,
+  sensor: TEX.PART_SENSOR,
+  mouth: TEX.PART_MOUTH,
+  segment: TEX.PART_SEGMENT,
+  rotor: TEX.PART_ROTOR,
+};
+
+export function partSilhouetteKey(role: string): string {
+  return ROLE_TO_SIL[role] ?? TEX.PART_ORGAN;
+}
+
+/**
+ * Data URLs for part silhouette icons — accessible from Svelte components
+ * without going through Phaser's texture manager.
+ * Populated during BootScene.create().
+ */
+export const partIconDataUrls = new Map<string, string>();
 
 /** Get texture key for architecture-specific floor tile */
 export function archFloorTex(archId: string): string {
@@ -88,6 +122,7 @@ export class BootScene extends Scene {
     this.generateSpeciesTextures();
     this.generateArchitectureTextures();
     this.generatePhysicsTextures();
+    this.generatePartSilhouettes();
     this.generateNebulaTexture();
 
     // Show brief boot message then start game
@@ -494,6 +529,168 @@ export class BootScene extends Scene {
     }
 
     this.textures.addCanvas(TEX.NEBULA, canvas);
+  }
+
+  /** Generate silhouette icons for each body part role (24x24, white on transparent). */
+  private generatePartSilhouettes(): void {
+    const S = 24;
+
+    const generate = (key: string, role: string, draw: (ctx: CanvasRenderingContext2D) => void) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = S;
+      canvas.height = S;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      draw(ctx);
+      this.textures.addCanvas(key, canvas);
+      partIconDataUrls.set(role, canvas.toDataURL());
+    };
+
+    // Arm — bent limb shape
+    generate(TEX.PART_ARM, 'arm', (ctx) => {
+      ctx.beginPath();
+      ctx.moveTo(12, 3);
+      ctx.lineTo(16, 3);
+      ctx.lineTo(16, 10);
+      ctx.lineTo(20, 10);
+      ctx.lineTo(20, 21);
+      ctx.lineTo(16, 21);
+      ctx.lineTo(16, 14);
+      ctx.lineTo(12, 14);
+      ctx.closePath();
+      ctx.fill();
+      // Hand
+      ctx.beginPath();
+      ctx.arc(18, 22, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Leg — straight limb with foot
+    generate(TEX.PART_LEG, 'leg', (ctx) => {
+      ctx.fillRect(9, 2, 6, 16);
+      // Foot
+      ctx.beginPath();
+      ctx.moveTo(7, 18);
+      ctx.lineTo(17, 18);
+      ctx.lineTo(19, 22);
+      ctx.lineTo(5, 22);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    // Head — rounded shape
+    generate(TEX.PART_HEAD, 'head', (ctx) => {
+      ctx.beginPath();
+      ctx.arc(12, 10, 8, 0, Math.PI * 2);
+      ctx.fill();
+      // Jaw
+      ctx.beginPath();
+      ctx.moveTo(6, 13);
+      ctx.lineTo(18, 13);
+      ctx.lineTo(16, 20);
+      ctx.lineTo(8, 20);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    // Torso — trapezoid
+    generate(TEX.PART_TORSO, 'torso', (ctx) => {
+      ctx.beginPath();
+      ctx.moveTo(6, 2);
+      ctx.lineTo(18, 2);
+      ctx.lineTo(20, 22);
+      ctx.lineTo(4, 22);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    // Organ — bean/blob shape
+    generate(TEX.PART_ORGAN, 'organ', (ctx) => {
+      ctx.beginPath();
+      ctx.moveTo(8, 6);
+      ctx.bezierCurveTo(4, 8, 4, 18, 10, 20);
+      ctx.bezierCurveTo(14, 22, 20, 18, 18, 12);
+      ctx.bezierCurveTo(22, 8, 16, 4, 12, 6);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    // Sensor — eye shape
+    generate(TEX.PART_SENSOR, 'sensor', (ctx) => {
+      // Outer eye shape
+      ctx.beginPath();
+      ctx.moveTo(2, 12);
+      ctx.quadraticCurveTo(12, 2, 22, 12);
+      ctx.quadraticCurveTo(12, 22, 2, 12);
+      ctx.closePath();
+      ctx.fill();
+      // Pupil (dark)
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.arc(12, 12, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(13, 10, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Mouth — open circular maw
+    generate(TEX.PART_MOUTH, 'mouth', (ctx) => {
+      ctx.beginPath();
+      ctx.arc(12, 12, 9, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner dark opening
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.arc(12, 12, 5, 0, Math.PI * 2);
+      ctx.fill();
+      // Teeth marks
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const tx = 12 + Math.cos(angle) * 6.5;
+        const ty = 12 + Math.sin(angle) * 6.5;
+        ctx.beginPath();
+        ctx.arc(tx, ty, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+    // Segment — horizontal capsule
+    generate(TEX.PART_SEGMENT, 'segment', (ctx) => {
+      ctx.beginPath();
+      ctx.ellipse(12, 12, 10, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Segment line
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(12, 6);
+      ctx.lineTo(12, 18);
+      ctx.stroke();
+    });
+
+    // Rotor — propeller blades
+    generate(TEX.PART_ROTOR, 'rotor', (ctx) => {
+      // Hub
+      ctx.beginPath();
+      ctx.arc(12, 12, 3, 0, Math.PI * 2);
+      ctx.fill();
+      // 3 blades
+      for (let i = 0; i < 3; i++) {
+        const angle = (i / 3) * Math.PI * 2 - Math.PI / 2;
+        ctx.save();
+        ctx.translate(12, 12);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.ellipse(0, -7, 2.5, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    });
   }
 
   private generateTile(

@@ -1,6 +1,8 @@
 <script lang="ts">
+  import DraggableWindow from './DraggableWindow.svelte';
   import { inventoryStore, type InventoryItemInfo } from './inventoryStore';
   import { findMatchingRecipes, executeCraft, executeCrudeCraft, type RecipeMatch } from '../ecs/crafting';
+  import { partIconDataUrls } from '../scenes/BootScene';
   import type { VisualEventQueue } from '../visual/EventQueue';
 
   const {
@@ -78,17 +80,31 @@
   function close() {
     inventoryStore.close();
   }
+
+  // Drag support for body parts
+  function onItemDragStart(e: DragEvent, item: InventoryItemInfo) {
+    if (!item.isPart) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer?.setData('text/part-eid', String(item.eid));
+    e.dataTransfer?.setData('text/source', 'inventory');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  }
+
+  // Double-click to auto-attach body parts
+  function handleItemDblClick(item: InventoryItemInfo) {
+    if (!item.isPart) return;
+    // Dispatch a custom event that GameScene picks up for attachment
+    window.dispatchEvent(new CustomEvent('body-auto-attach', { detail: { partEid: item.eid } }));
+  }
 </script>
 
-{#if open}
-<div class="inv-panel">
-  <header class="inv-header">
-    <h3>INVENTORY</h3>
-    <div class="inv-header-right">
-      <span class="inv-capacity">{capacity.used}/{capacity.max}</span>
-      <button class="inv-close" onclick={close}>&times;</button>
-    </div>
-  </header>
+<DraggableWindow title="INVENTORY" {open} defaultX={320} defaultY={80} width="22rem" onClose={close}>
+  <!-- Capacity display in header area -->
+  <div class="inv-cap-bar">
+    <span class="inv-capacity">{capacity.used}/{capacity.max}</span>
+  </div>
 
   <!-- Craft mode toggle -->
   <div class="inv-toolbar">
@@ -109,16 +125,27 @@
       <div
         class="inv-item"
         class:selected={item.selected}
+        class:inv-part={item.isPart}
+        draggable={item.isPart ? 'true' : 'false'}
         onclick={() => handleItemClick(item.eid)}
+        ondblclick={() => handleItemDblClick(item)}
+        ondragstart={(e) => onItemDragStart(e, item)}
       >
         <div class="inv-item-name">
+          {#if item.isPart && item.partRole}
+            <img class="inv-part-icon" src={partIconDataUrls.get(item.partRole)} alt="" />
+          {/if}
           {item.name}
           {#if item.stackCount > 1}<span class="inv-stack">x{item.stackCount}</span>{/if}
         </div>
         <div class="inv-item-detail">
           <span class="inv-mat">{item.material}</span>
-          <span class="inv-size">{item.size}</span>
-          <span class="inv-vol">{item.volume}vol</span>
+          {#if !item.isPart}
+            <span class="inv-size">{item.size}</span>
+            <span class="inv-vol">{item.volume}vol</span>
+          {:else}
+            <span class="inv-part-tag">{item.partRole}</span>
+          {/if}
           {#if !craftMode}
             <button class="inv-drop-btn" onclick={(e: MouseEvent) => { e.stopPropagation(); handleDrop(item.eid); }}>drop</button>
           {/if}
@@ -166,61 +193,19 @@
       </button>
     </div>
   {/if}
-</div>
-{/if}
+</DraggableWindow>
 
 <style>
-  .inv-panel {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 22rem;
-    max-height: 80vh;
-    background: rgba(10, 10, 18, 0.96);
-    border: 1px solid #334;
-    font-family: monospace;
-    font-size: 0.75rem;
-    z-index: 1100;
+  .inv-cap-bar {
     display: flex;
-    flex-direction: column;
-    color: #889999;
-    border-radius: 4px;
-  }
-  .inv-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.4rem 0.6rem;
-    background: #0a0a12;
-    border-bottom: 1px solid #334;
-    flex-shrink: 0;
-  }
-  .inv-header h3 {
-    margin: 0;
-    font-size: 0.8rem;
-    color: #ccdddd;
-    letter-spacing: 2px;
-  }
-  .inv-header-right {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    justify-content: flex-end;
+    padding: 0.2rem 0.6rem;
+    border-bottom: 1px solid #222;
   }
   .inv-capacity {
     color: #668;
     font-size: 0.7rem;
   }
-  .inv-close {
-    background: none;
-    border: none;
-    color: #667;
-    font-size: 1.1rem;
-    cursor: pointer;
-    font-family: monospace;
-    padding: 0 0.2rem;
-  }
-  .inv-close:hover { color: #e94560; }
   .inv-toolbar {
     display: flex;
     padding: 0.3rem 0.6rem;
@@ -270,9 +255,25 @@
   .inv-item.floor-item {
     background: rgba(80, 80, 40, 0.1);
   }
+  .inv-part {
+    cursor: grab;
+    border-left: 2px solid #4ec9b044;
+  }
+  .inv-part:hover {
+    border-left-color: #4ec9b0;
+  }
   .inv-item-name {
     color: #aabbbb;
     font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .inv-part-icon {
+    width: 14px;
+    height: 14px;
+    image-rendering: pixelated;
+    filter: brightness(0.7);
   }
   .inv-stack {
     color: #668;
@@ -290,6 +291,10 @@
   .inv-mat { color: #558; }
   .inv-size { color: #585; }
   .inv-vol { color: #655; }
+  .inv-part-tag {
+    color: #5a8;
+    font-style: italic;
+  }
   .inv-drop-btn, .inv-pickup-btn {
     background: none;
     border: 1px solid #334;

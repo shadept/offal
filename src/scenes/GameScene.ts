@@ -23,10 +23,15 @@ import {
   Item, HeldBy, Inventory,
 } from '../ecs/components';
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
-import { initBodyIndices, spawnBodyForCreature, getPartsOf, clearPartIndex } from '../ecs/body';
+import { initBodyIndices, spawnBodyForCreature, getPartsOf, clearPartIndex, attachPart, detachPart, getPartData } from '../ecs/body';
 import { initItemIndices, bindInventoryWorld, pickUp, drop, findItemsAtPosition, getItemData, spawnItemOnFloor, canPickUp, getItemsOf } from '../ecs/inventory';
 import { inventoryStore } from '../ui/inventoryStore';
+import { bodyStore } from '../ui/bodyStore';
+import { contextMenuStore } from '../ui/contextMenuStore';
 import InventoryPanel from '../ui/InventoryPanel.svelte';
+import BodyPanel from '../ui/BodyPanel.svelte';
+import ContextMenu from '../ui/ContextMenu.svelte';
+import Tooltip from '../ui/Tooltip.svelte';
 import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove, getBlockingEntity, syncDoorOverlays } from '../ecs/systems/movementSystem';
 import { processFireSystem } from '../ecs/systems/fireSystem';
@@ -127,7 +132,11 @@ export class GameScene extends Scene {
   private advanceKey!: Phaser.Input.Keyboard.Key;
   private graphKey!: Phaser.Input.Keyboard.Key;
   private inventoryKey!: Phaser.Input.Keyboard.Key;
+  private bodyKey!: Phaser.Input.Keyboard.Key;
   private inventoryPanelHandle: Record<string, unknown> | null = null;
+  private bodyPanelHandle: Record<string, unknown> | null = null;
+  private contextMenuHandle: Record<string, unknown> | null = null;
+  private tooltipHandle: Record<string, unknown> | null = null;
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
   /** Tracks click-drag panning in sandbox mode */
   private dragPanning = false;
@@ -161,6 +170,7 @@ export class GameScene extends Scene {
     // ── ECS setup ──
     this.world = createGameWorld();
     bindInventoryWorld(this.world);
+    inventoryStore.bindWorld(this.world);
     this.turnSystem = new TurnSystem();
     this.eventQueue = new VisualEventQueue();
 
@@ -289,6 +299,7 @@ export class GameScene extends Scene {
     this.advanceKey = this.input.keyboard!.addKey('N');
     this.graphKey = this.input.keyboard!.addKey('G');
     this.inventoryKey = this.input.keyboard!.addKey('I');
+    this.bodyKey = this.input.keyboard!.addKey('B');
 
     // ── Ambient: spark emitter on wall edges ──
     this.setupAmbientEffects();
@@ -372,6 +383,122 @@ export class GameScene extends Scene {
       () => this.turnSystem.turnCount,
     );
 
+    // ── Body panel ──
+    this.bodyPanelHandle = mount(BodyPanel, {
+      target: document.body,
+      props: {
+        playerEid: this.playerEid,
+        world: this.world,
+        onAttach: (partEid: number, bodyEid: number) => {
+          if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+          const success = attachPart(this.world, partEid, bodyEid);
+          if (!success) {
+            gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot attach part');
+            return;
+          }
+          this.removeEntitySprite(partEid);
+          const name = getPartData(partEid)?.name ?? 'part';
+          gameLog.push(this.turnSystem.turnCount, 'system', `Attached ${name}`);
+          bodyStore.notify();
+          inventoryStore.notify();
+          if (!this.sandbox.active) {
+            this.turnSystem.deductEnergy(this.playerEid, 100);
+            this.turnSystem.advance(this.world);
+            this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
+          }
+        },
+        onDetach: (partEid: number, bodyEid: number) => {
+          if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+          const x = Position.x[bodyEid];
+          const y = Position.y[bodyEid];
+          const name = getPartData(partEid)?.name ?? 'part';
+          detachPart(this.world, partEid, bodyEid, x, y);
+          this.createEntitySprite(partEid, undefined, TEX.SEVERED_PART);
+          gameLog.push(this.turnSystem.turnCount, 'system', `Detached ${name}`);
+          bodyStore.notify();
+          inventoryStore.notify();
+          if (!this.sandbox.active) {
+            this.turnSystem.deductEnergy(this.playerEid, 100);
+            this.turnSystem.advance(this.world);
+            this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
+          }
+        },
+      },
+    });
+
+    // ── Context menu ──
+    this.contextMenuHandle = mount(ContextMenu, { target: document.body });
+
+    // ── Tooltip (shared) ──
+    this.tooltipHandle = mount(Tooltip, {
+      target: document.body,
+      props: { visible: false, x: 0, y: 0, data: null },
+    });
+
+    // ── Right-click: suppress browser menu + open game context menu ──
+    this.game.canvas.addEventListener('contextmenu', (e: MouseEvent) => {
+      e.preventDefault();
+      contextMenuStore.close();
+
+      // Convert screen coords → world → tile
+      const rect = this.game.canvas.getBoundingClientRect();
+      const canvasX = (e.clientX - rect.left) * (this.game.canvas.width / rect.width);
+      const canvasY = (e.clientY - rect.top) * (this.game.canvas.height / rect.height);
+      const worldPoint = this.cameras.main.getWorldPoint(canvasX, canvasY);
+      const tileX = Math.floor(worldPoint.x / TILE_SIZE);
+      const tileY = Math.floor(worldPoint.y / TILE_SIZE);
+
+      // In normal mode: must be adjacent or same tile as player
+      if (!this.sandbox.active) {
+        const px = Position.x[this.playerEid];
+        const py = Position.y[this.playerEid];
+        if (Math.abs(tileX - px) > 1 || Math.abs(tileY - py) > 1) return;
+      }
+
+      // Find entities with Body at that tile
+      const targets: number[] = [];
+      for (const [eid] of this.entitySprites) {
+        if (eid === this.playerEid) continue;
+        if (!hasComponent(this.world, eid, Body)) continue;
+        if (Position.x[eid] === tileX && Position.y[eid] === tileY) {
+          targets.push(eid);
+        }
+      }
+      if (targets.length === 0) return;
+
+      const targetEid = targets[0];
+      const isDead = hasComponent(this.world, targetEid, Dead);
+      contextMenuStore.show(e.clientX, e.clientY, targetEid, [
+        {
+          label: isDead ? 'Inspect Body' : 'Inspect',
+          enabled: true,
+          callback: () => bodyStore.inspect(targetEid, false),
+        },
+      ]);
+    });
+
+    // ── Auto-attach from inventory double-click ──
+    const handleAutoAttach = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.partEid) return;
+      if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+      const success = attachPart(this.world, detail.partEid, this.playerEid);
+      if (!success) {
+        gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot attach part');
+        return;
+      }
+      this.removeEntitySprite(detail.partEid);
+      gameLog.push(this.turnSystem.turnCount, 'system', `Attached ${getPartData(detail.partEid)?.name ?? 'part'}`);
+      bodyStore.notify();
+      inventoryStore.notify();
+      if (!this.sandbox.active) {
+        this.turnSystem.deductEnergy(this.playerEid, 100);
+        this.turnSystem.advance(this.world);
+        this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
+      }
+    };
+    window.addEventListener('body-auto-attach', handleAutoAttach);
+
     // Selection highlight (yellow outline, hidden by default)
     this.selectionHighlight = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE);
     this.selectionHighlight.setOrigin(0, 0);
@@ -386,9 +513,10 @@ export class GameScene extends Scene {
     this.renderTiles();
     this.toggleShipGraphOverlay();
 
-    // Pointer click for sandbox
+    // Pointer click for sandbox (left-click only — right-click is context menu)
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (!this.sandbox.active) return;
+      if (pointer.rightButtonDown()) return;
       this.handleSandboxClick(pointer);
     });
 
@@ -399,10 +527,10 @@ export class GameScene extends Scene {
       cam.setZoom(newZoom);
     });
 
-    // Click-drag camera panning (middle mouse or right-click in sandbox)
+    // Click-drag camera panning (middle mouse in sandbox)
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (!this.sandbox.active) return;
-      if (pointer.middleButtonDown() || pointer.rightButtonDown()) {
+      if (pointer.middleButtonDown()) {
         this.dragPanning = true;
         this.dragLastX = pointer.x;
         this.dragLastY = pointer.y;
@@ -417,7 +545,7 @@ export class GameScene extends Scene {
       this.dragLastY = pointer.y;
     });
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.middleButtonReleased() || pointer.rightButtonReleased()) {
+      if (pointer.middleButtonReleased()) {
         this.dragPanning = false;
       }
     });
@@ -451,6 +579,18 @@ export class GameScene extends Scene {
       unmount(this.inventoryPanelHandle as ReturnType<typeof mount>);
       this.inventoryPanelHandle = null;
     }
+    if (this.bodyPanelHandle) {
+      unmount(this.bodyPanelHandle as ReturnType<typeof mount>);
+      this.bodyPanelHandle = null;
+    }
+    if (this.contextMenuHandle) {
+      unmount(this.contextMenuHandle as ReturnType<typeof mount>);
+      this.contextMenuHandle = null;
+    }
+    if (this.tooltipHandle) {
+      unmount(this.tooltipHandle as ReturnType<typeof mount>);
+      this.tooltipHandle = null;
+    }
   }
 
   update(time: number, delta: number): void {
@@ -475,6 +615,11 @@ export class GameScene extends Scene {
     // ── Inventory toggle (I key) ──
     if (Phaser.Input.Keyboard.JustDown(this.inventoryKey)) {
       inventoryStore.toggle();
+    }
+
+    // ── Body panel toggle (B key) ──
+    if (Phaser.Input.Keyboard.JustDown(this.bodyKey)) {
+      bodyStore.toggle(this.playerEid);
     }
 
     // ── Sandbox mode ──
@@ -667,7 +812,7 @@ export class GameScene extends Scene {
 
   private handlePlayerInput(): void {
     if (this.inputCooldown > 0) return;
-    if (inventoryStore.open) return; // Inventory is open — don't move
+    if (inventoryStore.open || bodyStore.open) return; // UI panel open — don't move
 
     let dx = 0;
     let dy = 0;
@@ -819,7 +964,7 @@ export class GameScene extends Scene {
   private runPhysics(): void {
     syncDoorOverlays(this.tileMap, this.world);
     processFluidSystem(this.tileMap, this.tilePhysics, this.world, this.entityPhysics, this.eventQueue);
-    processFireSystem(this.tileMap, this.tilePhysics, this.world, this.eventQueue);
+    processFireSystem(this.tileMap, this.tilePhysics, this.world, this.entityPhysics, this.eventQueue);
     processGasSystem(this.tileMap, this.tilePhysics, this.world, this.entitySpecies, this.eventQueue);
     processBodySystem(this.world, this.eventQueue);
     this.entityPhysics.tick();

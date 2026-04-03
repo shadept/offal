@@ -3,13 +3,14 @@
  * Not a Svelte $state store — plain class with listeners for framework-agnostic reactivity.
  */
 import { hasComponent } from 'bitecs';
-import { Item, HeldBy, Inventory, Position } from '../ecs/components';
+import { Item, HeldBy, Inventory, Position, PartIdentity } from '../ecs/components';
 import {
   getItemsOf, getItemData, getItemVolume, getCreatureCapacity,
   getCreatureUsedVolume, findItemsAtPosition,
 } from '../ecs/inventory';
+import { getPartData } from '../ecs/body';
 import { crudeCompositeData } from '../ecs/crafting';
-import type { ItemData } from '../types';
+import type { ItemData, PartRole } from '../types';
 import { ITEM_SIZE_VOLUME } from '../types';
 
 export interface InventoryItemInfo {
@@ -21,6 +22,8 @@ export interface InventoryItemInfo {
   stackCount: number;
   tags: string[];
   selected: boolean;
+  isPart: boolean;
+  partRole?: PartRole;
 }
 
 export interface FloorItemInfo {
@@ -35,6 +38,10 @@ export class InventoryStore {
   private _craftMode = false;
   private _selectedItems = new Set<number>();
   private _listeners: (() => void)[] = [];
+  private _world: object | null = null;
+
+  /** Bind the ECS world for hasComponent checks. */
+  bindWorld(world: object): void { this._world = world; }
 
   get open(): boolean { return this._open; }
   get craftMode(): boolean { return this._craftMode; }
@@ -94,23 +101,43 @@ export class InventoryStore {
     const result: InventoryItemInfo[] = [];
 
     for (const eid of items) {
-      const data = getItemData(eid);
-      const crude = crudeCompositeData.get(eid);
-      const name = data?.name ?? crude?.name ?? 'Unknown Item';
-      const material = data?.material ?? crude?.material ?? '?';
-      const size = data?.size ?? crude?.size ?? 'medium';
-      const volume = data ? (ITEM_SIZE_VOLUME[data.size] ?? 4) * (Item.stackCount[eid] || 1) : 4;
+      // Check if this is a body part (has PartIdentity)
+      const isPart = this._world ? hasComponent(this._world, eid, PartIdentity) : false;
 
-      result.push({
-        eid,
-        name,
-        material,
-        size,
-        volume,
-        stackCount: Item.stackCount[eid] || 1,
-        tags: data?.tags ?? crude?.tags ?? [],
-        selected: this._selectedItems.has(eid),
-      });
+      if (isPart) {
+        const partDef = getPartData(eid);
+        result.push({
+          eid,
+          name: partDef?.name ?? 'Severed Part',
+          material: partDef?.material ?? '?',
+          size: 'medium',
+          volume: 4,
+          stackCount: 1,
+          tags: [],
+          selected: this._selectedItems.has(eid),
+          isPart: true,
+          partRole: partDef?.type as PartRole | undefined,
+        });
+      } else {
+        const data = getItemData(eid);
+        const crude = crudeCompositeData.get(eid);
+        const name = data?.name ?? crude?.name ?? 'Unknown Item';
+        const material = data?.material ?? crude?.material ?? '?';
+        const size = data?.size ?? crude?.size ?? 'medium';
+        const volume = data ? (ITEM_SIZE_VOLUME[data.size] ?? 4) * (Item.stackCount[eid] || 1) : 4;
+
+        result.push({
+          eid,
+          name,
+          material,
+          size,
+          volume,
+          stackCount: Item.stackCount[eid] || 1,
+          tags: data?.tags ?? crude?.tags ?? [],
+          selected: this._selectedItems.has(eid),
+          isPart: false,
+        });
+      }
     }
 
     return result;
