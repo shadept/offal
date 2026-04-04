@@ -9,7 +9,7 @@ export interface TileInspectData {
   tileTypeId: number;
   materialName: string;
   visibility: string;
-  light: number;
+  light: number | string;
   // Phase 3 placeholders
   fluids: Record<string, number>;
   gases: Record<string, number>;

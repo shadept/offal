@@ -116,7 +116,7 @@ export class GameScene extends Scene {
   private visCtx!: CanvasRenderingContext2D;
   private playerLightSource!: LightSource;
   private fireLightSources = new Map<number, LightSource>(); // keyed by tile index
-  private shadowSprites = new Map<number, Phaser.GameObjects.Image>(); // entity blob shadows
+  private roomLightSources: LightSource[] = [];
   /** Gas particle emitters indexed by tile flat index */
   private gasEmitters = new Map<number, Phaser.GameObjects.Particles.ParticleEmitter>();
 
@@ -152,6 +152,7 @@ export class GameScene extends Scene {
   private inventoryKey!: Phaser.Input.Keyboard.Key;
   private bodyKey!: Phaser.Input.Keyboard.Key;
   private interactKey!: Phaser.Input.Keyboard.Key;
+  private revealKey!: Phaser.Input.Keyboard.Key;
   private inventoryPanelHandle: Record<string, unknown> | null = null;
   private bodyPanelHandle: Record<string, unknown> | null = null;
   private lootPanelHandle: Record<string, unknown> | null = null;
@@ -307,6 +308,9 @@ export class GameScene extends Scene {
     this.visCtx = this.visCanvas.getContext('2d')!;
     this.textures.addCanvas('_lightmap', this.lightmapCanvas);
     this.textures.addCanvas('_visibility', this.visCanvas);
+    // Disable UNPACK_FLIP_Y so canvas data maps 1:1 to tile UV (row 0 → v=0)
+    (this.textures.get('_lightmap') as any)._source.flipY = false;
+    (this.textures.get('_visibility') as any)._source.flipY = false;
 
     // Player light source
     this.playerLightSource = this.lightmap.addSource({
@@ -315,6 +319,12 @@ export class GameScene extends Scene {
       r: 1.0, g: 0.95, b: 0.85, // warm white
       radius: FOV.range[this.playerEid] || 8,
     });
+
+    // Room ceiling lights
+    this.addRoomLights();
+
+    // Hull and space are always pre-revealed (player approached from outside)
+    this.revealExterior();
 
     // ── Initial FOV ──
     this.updateFOV();
@@ -341,17 +351,12 @@ export class GameScene extends Scene {
         });
         (this.cameras.main.filters as any).external.add(this.lightmapFilter);
 
-        // Set lightmap texture to LINEAR filtering for smooth interpolation
-        // (pixelArt:true forces NEAREST globally, but lightmap needs bilinear)
+        // Override NEAREST (from pixelArt:true) with LINEAR on the lightmap
+        // wrapper so bilinear interpolation persists through texture updates.
         const gl = (webglRenderer as any).gl as WebGLRenderingContext;
         if (gl && this.lightmapFilter.lightmapGlTexture) {
-          const glTex = this.lightmapFilter.lightmapGlTexture;
-          if (glTex.webGLTexture) {
-            gl.bindTexture(gl.TEXTURE_2D, glTex.webGLTexture);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-            gl.bindTexture(gl.TEXTURE_2D, null);
-          }
+          this.lightmapFilter.lightmapGlTexture.minFilter = gl.LINEAR;
+          this.lightmapFilter.lightmapGlTexture.magFilter = gl.LINEAR;
         }
 
         console.log('[lighting] Shader filter enabled');
@@ -380,6 +385,7 @@ export class GameScene extends Scene {
     this.inventoryKey = this.input.keyboard!.addKey('I');
     this.bodyKey = this.input.keyboard!.addKey('B');
     this.interactKey = this.input.keyboard!.addKey('E');
+    this.revealKey = this.input.keyboard!.addKey('R');
 
     // ── Ambient: spark emitter on wall edges ──
     this.setupAmbientEffects();
@@ -391,7 +397,7 @@ export class GameScene extends Scene {
 
     // ── Sandbox ──
     this.sandbox = new SandboxController();
-    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics);
+    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics, this.lightmap);
 
     // Register entity surface state inspector (contamination from fluids etc.)
     this.sandbox.debugRegistry.register({
@@ -684,6 +690,7 @@ export class GameScene extends Scene {
       if (event === 'entity_spawned') this.onEntitySpawned(data as { eid: number; x: number; y: number; speciesId: string });
       if (event === 'entity_removed') this.onEntityRemoved(data as { eid: number });
       if (event === 'reveal_changed') this.onRevealChanged();
+      if (event === 'light_debug_changed') this.updateFOV();
       if (event === 'physics_changed') {
         const d = data as { x: number; y: number };
         this.updateFireOverlay(d.x, d.y);
@@ -758,6 +765,11 @@ export class GameScene extends Scene {
       this.handleInteract();
     }
 
+    // ── Toggle reveal all (R key) ──
+    if (Phaser.Input.Keyboard.JustDown(this.revealKey)) {
+      this.sandbox.setRevealAll(!this.sandbox.revealAll);
+    }
+
     // ── Sandbox mode ──
     if (this.sandbox.active) {
       // Don't advance while draining visual events
@@ -820,6 +832,9 @@ export class GameScene extends Scene {
 
     // ── Idle animation (player bobs gently) ──
     this.idleTime += delta;
+    if (this.lightmapFilter) {
+      this.lightmapFilter.time = time * 0.001; // ms → seconds
+    }
     this.updateIdleAnimations();
 
     // ── HUD + HP bars ──
@@ -838,6 +853,7 @@ export class GameScene extends Scene {
     for (const [eid, sprite] of this.entitySprites) {
       if (eid === this.playerEid) continue;
       if (!hasComponent(this.world, eid, Body)) continue;
+      if (hasComponent(this.world, eid, Dead)) continue;
       if (!sprite.visible) continue;
 
       const hp = Health.hp[eid];
@@ -951,15 +967,6 @@ export class GameScene extends Scene {
     this.entityContainer.add(sprite);
     this.entitySprites.set(eid, sprite);
 
-    // Blob shadow for creatures (not items/parts)
-    if (speciesId && this.textures.exists(TEX.BLOB_SHADOW)) {
-      const shadow = this.add.image(px, py, TEX.BLOB_SHADOW);
-      shadow.setOrigin(0, 0);
-      shadow.setDepth(-0.5);
-      this.entityContainer.add(shadow);
-      this.shadowSprites.set(eid, shadow);
-    }
-
     return sprite;
   }
 
@@ -969,11 +976,6 @@ export class GameScene extends Scene {
       sprite.destroy();
       this.entitySprites.delete(eid);
       this.entitySpecies.delete(eid);
-    }
-    const shadow = this.shadowSprites.get(eid);
-    if (shadow) {
-      shadow.destroy();
-      this.shadowSprites.delete(eid);
     }
   }
 
@@ -995,12 +997,6 @@ export class GameScene extends Scene {
     const px = Position.x[eid] * TILE_SIZE;
     const py = Position.y[eid] * TILE_SIZE;
     sprite.setPosition(px, py);
-    // Sync blob shadow
-    const shadow = this.shadowSprites.get(eid);
-    if (shadow) {
-      shadow.setPosition(px, py);
-      shadow.setVisible(sprite.visible);
-    }
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1095,8 +1091,7 @@ export class GameScene extends Scene {
   private syncAllEntitySprites(): void {
     for (const [eid, sprite] of this.entitySprites) {
       if (hasComponent(this.world, eid, Dead) && hasComponent(this.world, eid, Body)) {
-        // Corpse: keep lowered depth so living entities render on top
-        sprite.setTint(0x664422);
+        sprite.setTint(0x444444);
         sprite.setAlpha(0.7);
         sprite.setScale(1);
         sprite.setDepth(-1);
@@ -1172,13 +1167,17 @@ export class GameScene extends Scene {
     if (hasComponent(this.world, eid, AI)) removeComponent(this.world, eid, AI);
     if (hasComponent(this.world, eid, FOV)) removeComponent(this.world, eid, FOV);
     if (hasComponent(this.world, eid, BlocksMovement)) removeComponent(this.world, eid, BlocksMovement);
-    // Capacities will be naturally zero — dead body has 0 HP parts,
-    // degradation curves return 0, and stamina modifier is 0.5 with 0 body HP.
-    // No manual zeroing needed.
     // Update tile blockage map
     const idx = this.tileMap.idx(Position.x[eid], Position.y[eid]);
     this.tileMap.entityBlocksMovement[idx] = 0;
     clearEntityAICache(eid);
+
+    // Desaturated dark tint — corpse looks drained/lifeless
+    const sprite = this.entitySprites.get(eid);
+    if (sprite) {
+      sprite.setTint(0x667788);
+      sprite.setAlpha(0.8);
+    }
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1311,8 +1310,9 @@ export class GameScene extends Scene {
       }
 
       const isPlayer = event.entityId === this.playerEid;
-      const fromVis = isPlayer || this.tileMap.getVisibility(fromX, fromY) === Visibility.VISIBLE;
-      const toVis = isPlayer || this.tileMap.getVisibility(toX, toY) === Visibility.VISIBLE;
+      const revealAll = !!this.sandbox?.revealAll;
+      const fromVis = isPlayer || revealAll || this.tileMap.getVisibility(fromX, fromY) === Visibility.VISIBLE;
+      const toVis = isPlayer || revealAll || this.tileMap.getVisibility(toX, toY) === Visibility.VISIBLE;
 
       // Both tiles outside FOV — snap instantly, keep hidden
       if (this.eventQueue.skipMode || (!fromVis && !toVis)) {
@@ -1948,8 +1948,26 @@ export class GameScene extends Scene {
     // ── Spawn entities ──
     this.spawnMapEntities(shipResult.spawns);
 
+    // ── Rebuild lightmap for new map dimensions ──
+    this.lightmap = new Lightmap(this.tileMap.width, this.tileMap.height);
+    this.lightmapCanvas.width = this.tileMap.width;
+    this.lightmapCanvas.height = this.tileMap.height;
+    this.visCanvas.width = this.tileMap.width;
+    this.visCanvas.height = this.tileMap.height;
+    this.fireLightSources.clear();
+    this.playerLightSource = this.lightmap.addSource({
+      x: Position.x[this.playerEid],
+      y: Position.y[this.playerEid],
+      r: 1.0, g: 0.95, b: 0.85,
+      radius: FOV.range[this.playerEid] || 8,
+    });
+    this.addRoomLights();
+    if (this.lightmapFilter) {
+      this.lightmapFilter.mapSize = [this.tileMap.width, this.tileMap.height];
+    }
+
     // ── Rebind sandbox refs ──
-    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics);
+    this.sandbox.bind(this.tileMap, this.world, this.turnSystem, this.eventQueue, this.tilePhysics, this.lightmap);
 
     // ── Camera — always centered on player, no bounds ──
     this.cameras.main.removeBounds();
@@ -1961,6 +1979,7 @@ export class GameScene extends Scene {
     this.turnSystem.reset();
 
     // ── FOV + render ──
+    this.revealExterior();
     this.updateFOV();
     this.renderTiles();
     this.renderPhysicsOverlays();
@@ -2180,44 +2199,39 @@ export class GameScene extends Scene {
     // Update shader revealAll flag
     if (this.lightmapFilter) {
       this.lightmapFilter.revealAll = this.sandbox?.revealAll ? 1.0 : 0.0;
+      this.lightmapFilter.debugMode = this.sandbox?.lightDebugMode ?? 0;
     }
 
-    if (this.sandbox?.revealAll) {
-      // Reveal entire map
-      const { width, height } = this.tileMap;
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          this.tileMap.visibility[this.tileMap.idx(x, y)] = Visibility.VISIBLE;
+    // Always compute FOV — revealAll is rendering-only, never mutates data
+    const px = Position.x[this.playerEid];
+    const py = Position.y[this.playerEid];
+    const range = FOV.range[this.playerEid];
+    computeFOV(this.tileMap, px, py, range);
+
+    const revealAll = !!this.sandbox?.revealAll;
+
+    // Update entity visibility
+    const useShader = !!this.lightmapFilter;
+    for (const [eid, sprite] of this.entitySprites) {
+      if (eid === this.playerEid) {
+        sprite.setVisible(true);
+        if (!useShader) {
+          const pidx = this.tileMap.idx(Position.x[eid], Position.y[eid]);
+          const pr = Math.min(255, Math.round(Math.max(0.06, this.lightmap.r[pidx]) * 255));
+          const pg = Math.min(255, Math.round(Math.max(0.06, this.lightmap.g[pidx]) * 255));
+          const pb = Math.min(255, Math.round(Math.max(0.06, this.lightmap.b[pidx]) * 255));
+          sprite.setTint((pr << 16) | (pg << 8) | pb);
+        } else {
+          sprite.setTint(0xffffff);
         }
+        continue;
       }
-      // All entities visible
-      for (const [, sprite] of this.entitySprites) {
+
+      if (revealAll) {
         sprite.setVisible(true);
         sprite.setTint(0xffffff);
         sprite.setAlpha(1);
-      }
-    } else {
-      const px = Position.x[this.playerEid];
-      const py = Position.y[this.playerEid];
-      const range = FOV.range[this.playerEid];
-      computeFOV(this.tileMap, px, py, range);
-
-      // Update entity visibility
-      const useShader = !!this.lightmapFilter;
-      for (const [eid, sprite] of this.entitySprites) {
-        if (eid === this.playerEid) {
-          sprite.setVisible(true);
-          if (!useShader) {
-            const pidx = this.tileMap.idx(Position.x[eid], Position.y[eid]);
-            const pr = Math.min(255, Math.round(Math.max(0.06, this.lightmap.r[pidx]) * 255));
-            const pg = Math.min(255, Math.round(Math.max(0.06, this.lightmap.g[pidx]) * 255));
-            const pb = Math.min(255, Math.round(Math.max(0.06, this.lightmap.b[pidx]) * 255));
-            sprite.setTint((pr << 16) | (pg << 8) | pb);
-          } else {
-            sprite.setTint(0xffffff);
-          }
-          continue;
-        }
+      } else {
         const ex = Position.x[eid];
         const ey = Position.y[eid];
         const vis = this.tileMap.getVisibility(ex, ey);
@@ -2244,6 +2258,13 @@ export class GameScene extends Scene {
           sprite.setVisible(false);
         }
       }
+
+      // Corpse — desaturated, behind living entities
+      if (hasComponent(this.world, eid, Dead)) {
+        sprite.setTint(0x444444);
+        sprite.setAlpha(0.7);
+        sprite.setDepth(-1);
+      }
     }
 
     // ── Recompute lightmap ──
@@ -2251,9 +2272,16 @@ export class GameScene extends Scene {
       Position.x[this.playerEid], Position.y[this.playerEid]);
     this.lightmap.recompute((x, y) => this.tileMap.blocksLight(x, y));
 
+    // Starlight — ambient light on hull and space from a nearby star.
+    // Space is well-lit: even distant planets are clearly visible from starlight.
+    this.lightmap.addAmbient(
+      0.65, 0.60, 0.70,
+      (x, y) => this.tileMap.tiles[this.tileMap.idx(x, y)] !== TileType.FLOOR,
+    );
+
     // Upload to GPU textures for shader
     if (this.lightmapFilter) {
-      this.lightmap.uploadToCanvas(this.lightmapCtx, this.visCtx, this.tileMap.visibility);
+      this.lightmap.uploadToCanvas(this.lightmapCtx, this.visCtx, this.tileMap.visibility, this.tileMap.tiles);
       const lightTex = this.textures.get('_lightmap');
       if (lightTex) (lightTex as any).update();
       const visTex = this.textures.get('_visibility');
@@ -2262,6 +2290,68 @@ export class GameScene extends Scene {
     }
   }
 
+
+  // ════════════════════════════════════════════════════════════
+  // ROOM LIGHTING
+  // ════════════════════════════════════════════════════════════
+
+  /** Mark space (VOID) and pure hull walls as SEEN.
+   *  A wall touching any FLOOR stays UNSEEN (it's a room boundary). */
+  private revealExterior(): void {
+    const { width, height, tiles, visibility } = this.tileMap;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (visibility[i] !== Visibility.UNSEEN) continue;
+
+        if (tiles[i] === TileType.VOID) {
+          visibility[i] = Visibility.SEEN;
+        } else if (tiles[i] === TileType.WALL) {
+          // Only reveal walls with NO adjacent floor (pure exterior hull)
+          const touchesFloor = (
+            (x > 0 && tiles[i - 1] === TileType.FLOOR) ||
+            (x < width - 1 && tiles[i + 1] === TileType.FLOOR) ||
+            (y > 0 && tiles[i - width] === TileType.FLOOR) ||
+            (y < height - 1 && tiles[i + width] === TileType.FLOOR)
+          );
+          if (!touchesFloor) visibility[i] = Visibility.SEEN;
+        }
+      }
+    }
+  }
+
+  /** Ceiling light color per architecture theme (r, g, b — HDR, can exceed 1.0). */
+  private static ARCH_LIGHT_COLORS: Record<string, [number, number, number]> = {
+    human:      [0.85, 0.90, 1.00],  // cool fluorescent white
+    alien:      [0.40, 0.90, 0.85],  // teal bioluminescence
+    insectoid:  [0.95, 0.75, 0.40],  // warm amber resin glow
+    industrial: [1.00, 0.85, 0.55],  // sodium lamp yellow
+    monolithic: [0.65, 0.55, 1.00],  // cold purple
+  };
+  private static DEFAULT_LIGHT_COLOR: [number, number, number] = [0.90, 0.88, 0.80];
+
+  private addRoomLights(): void {
+    // Clean up previous room lights
+    for (const src of this.roomLightSources) {
+      this.lightmap.removeSource(src.id);
+    }
+    this.roomLightSources = [];
+
+    const [lr, lg, lb] = GameScene.ARCH_LIGHT_COLORS[this.currentArchitectureId]
+      ?? GameScene.DEFAULT_LIGHT_COLOR;
+
+    for (const room of this.currentRooms) {
+      // Radius covers the room diagonal + 1 for bleed into doorways
+      const radius = Math.ceil(Math.sqrt(room.rect.w * room.rect.w + room.rect.h * room.rect.h) / 2) + 1;
+      const src = this.lightmap.addSource({
+        x: room.center.x,
+        y: room.center.y,
+        r: lr, g: lg, b: lb,
+        radius,
+      });
+      this.roomLightSources.push(src);
+    }
+  }
 
   // ════════════════════════════════════════════════════════════
   // IDLE ANIMATIONS

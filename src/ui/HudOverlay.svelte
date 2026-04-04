@@ -49,7 +49,7 @@
     {/if}
   </div>
 
-  <div class="hud-bottom">WASD: move | Space: wait | E: interact | I: inventory | B: body | Tab: sandbox</div>
+  <div class="hud-bottom">WASD: move | Space: wait | E: interact | I: inventory | B: body | R: reveal | Tab: sandbox</div>
 </div>
 
 <style>

@@ -64,6 +64,18 @@
       AI Only
     </label>
   </div>
+
+  <div class="sb-sim-row">
+    <span class="sb-select-label">Light Debug</span>
+    <select class="sb-select" value={String(store.lightDebugMode)}
+      onchange={(e) => store.ctrl.setLightDebugMode(parseInt(e.currentTarget.value, 10))}>
+      <option value="0">Off</option>
+      <option value="1">Lightmap RGB</option>
+      <option value="2">Visibility</option>
+      <option value="3">Heat Map</option>
+      <option value="4">Flicker</option>
+    </select>
+  </div>
 </div>
 
 <!-- Event Triggers -->
@@ -183,4 +195,19 @@
     font-weight: bold;
   }
   .sb-gen-btn:hover { background: #3a2a5e; }
+  .sb-select-label {
+    font-size: 0.7rem;
+    color: #889999;
+    white-space: nowrap;
+  }
+  .sb-select {
+    flex: 1;
+    background: #0a0a12;
+    border: 1px solid #334;
+    color: #ccdddd;
+    font-family: monospace;
+    font-size: 0.65rem;
+    padding: 0.15rem 0.3rem;
+    border-radius: 2px;
+  }
 </style>

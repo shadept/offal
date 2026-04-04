@@ -21,9 +21,10 @@ export class LightmapFilter extends FilterController {
   mapSize: [number, number];
   tileSize: number;
   time = 0;
-  seenTint: [number, number, number] = [0.15, 0.17, 0.22];
+  seenTint: [number, number, number] = [0.35, 0.38, 0.45];
   lightScale: number;
   revealAll = 0.0;
+  debugMode = 0.0;  // 0=normal, 1=lightmap RGB, 2=visibility, 3=heat map
 
   private scene: Phaser.Scene;
   private lightmapKey: string;

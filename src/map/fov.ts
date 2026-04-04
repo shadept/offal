@@ -177,6 +177,7 @@ export function propagateLight(
   r: number, g: number, b: number,
   blocksLight: (x: number, y: number) => boolean,
   output: LightOutput,
+  flickerType?: number,
 ): void {
   // Track max intensity per tile to avoid octant overlap doubling
   const maxIntensity = new Float32Array(output.width * output.height);
@@ -192,11 +193,16 @@ export function propagateLight(
   }
 
   // Apply: add color * maxIntensity to output
+  const flicker = (output as any).flicker as Uint8Array | undefined;
   for (let i = 0; i < maxIntensity.length; i++) {
     if (maxIntensity[i] > 0) {
       output.r[i] += r * maxIntensity[i];
       output.g[i] += g * maxIntensity[i];
       output.b[i] += b * maxIntensity[i];
+      // Stamp flicker type where this source dominates
+      if (flickerType && flicker && maxIntensity[i] > 0.3) {
+        flicker[i] = flickerType;
+      }
     }
   }
 }

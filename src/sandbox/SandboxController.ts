@@ -18,6 +18,7 @@ import type { SpeciesData } from '../types';
 import type { TurnSystem } from '../ecs/systems/turnSystem';
 import type { VisualEventQueue } from '../visual/EventQueue';
 import type { TilePhysicsMap } from '../ecs/systems/tilePhysics';
+import type { Lightmap } from '../lighting/Lightmap';
 import { DebugOverlayRegistry } from './debugOverlays';
 import { clearEntityAICache } from '../ecs/systems/aiSystem';
 import type { SandboxTool, TileInspectData, EntityInspectData, ComponentSectionData } from './types';
@@ -34,6 +35,7 @@ export class SandboxController {
   // ── Mode state ──
   active = false;
   revealAll = false;
+  lightDebugMode = 0;  // 0=normal, 1=lightmap RGB, 2=visibility, 3=heat map
 
   // ── Selection ──
   selectedTile: { x: number; y: number } | null = null;
@@ -63,17 +65,19 @@ export class SandboxController {
   private turnSystem!: TurnSystem;
   private eventQueue!: VisualEventQueue;
   private tilePhysics!: TilePhysicsMap;
+  private lightmap?: Lightmap;
 
   // ── Event emitter ──
   private listeners: Listener[] = [];
 
   /** Bind game references. Called once from GameScene.create(). */
-  bind(tileMap: TileMap, world: object, turnSystem: TurnSystem, eventQueue: VisualEventQueue, tilePhysics?: TilePhysicsMap): void {
+  bind(tileMap: TileMap, world: object, turnSystem: TurnSystem, eventQueue: VisualEventQueue, tilePhysics?: TilePhysicsMap, lightmap?: Lightmap): void {
     this.tileMap = tileMap;
     this.world = world;
     this.turnSystem = turnSystem;
     this.eventQueue = eventQueue;
     if (tilePhysics) this.tilePhysics = tilePhysics;
+    if (lightmap) this.lightmap = lightmap;
 
     // Default to first non-playerStart species
     const registry = getRegistry();
@@ -140,7 +144,9 @@ export class SandboxController {
       tileTypeId: tileIndex,
       materialName: material?.name ?? 'None',
       visibility: VIS_NAMES[this.tileMap.visibility[idx]] ?? 'Unknown',
-      light: this.tileMap.light[idx],
+      light: this.lightmap
+        ? `${this.lightmap.r[idx].toFixed(2)}, ${this.lightmap.g[idx].toFixed(2)}, ${this.lightmap.b[idx].toFixed(2)}`
+        : this.tileMap.light[idx],
       fluids,
       gases,
       temperature,
@@ -438,6 +444,11 @@ export class SandboxController {
   setRevealAll(v: boolean): void {
     this.revealAll = v;
     this.emit('reveal_changed', v);
+  }
+
+  setLightDebugMode(mode: number): void {
+    this.lightDebugMode = mode;
+    this.emit('light_debug_changed', mode);
   }
 
   setAutoPlay(v: boolean): void {

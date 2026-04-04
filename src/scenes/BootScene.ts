@@ -253,6 +253,11 @@ export class BootScene extends Scene {
       const key = speciesTexKey(species.id);
       this.generateTile(key, (ctx) => {
         ctx.clearRect(0, 0, S, S);
+        // Blob shadow beneath creature
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        ctx.beginPath();
+        ctx.ellipse(S / 2, S * 0.82, S * 0.35, S * 0.12, 0, 0, Math.PI * 2);
+        ctx.fill();
         // Body circle in species color
         ctx.fillStyle = species.color;
         ctx.beginPath();
@@ -459,15 +464,6 @@ export class BootScene extends Scene {
       ctx.fill();
     });
 
-    // ── Blob shadow (dark ellipse for grounding entities) ──
-    this.generateTile(TEX.BLOB_SHADOW, (ctx) => {
-      const gradient = ctx.createRadialGradient(S / 2, S * 0.8, 0, S / 2, S * 0.8, S * 0.35);
-      gradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
-      gradient.addColorStop(0.6, 'rgba(0, 0, 0, 0.15)');
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, S, S);
-    });
   }
 
   /** Generate a tileable nebula background texture. */

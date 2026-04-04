@@ -31,6 +31,7 @@ export class SandboxStore {
   get autoPlay()         { this.#tick; return this.#ctrl.autoPlay; }
   get autoPlaySpeed()    { this.#tick; return this.#ctrl.autoPlaySpeed; }
   get revealAll()        { this.#tick; return this.#ctrl.revealAll; }
+  get lightDebugMode()   { this.#tick; return this.#ctrl.lightDebugMode; }
   get aiOnly()           { this.#tick; return this.#ctrl.aiOnly; }
   get paintTileIndex()   { this.#tick; return this.#ctrl.paintTileIndex; }
   get selectedSpeciesId(){ this.#tick; return this.#ctrl.selectedSpeciesId; }

@@ -7,6 +7,13 @@
  */
 import { propagateLight } from '../map/fov';
 
+/** Flicker type → alpha-channel index for GPU encoding. */
+export const FLICKER_INDEX: Record<string, number> = {
+  fire: 1,
+  broken: 2,
+  pulse: 3,
+};
+
 export interface LightSource {
   id: number;
   x: number;
@@ -32,6 +39,8 @@ export class Lightmap {
   readonly r: Float32Array;
   readonly g: Float32Array;
   readonly b: Float32Array;
+  /** Per-tile flicker type index (0=none). Highest-intensity source wins. */
+  readonly flicker: Uint8Array;
 
   private _sources: LightSource[] = [];
   private _nextId = 1;
@@ -43,6 +52,7 @@ export class Lightmap {
     this.r = new Float32Array(size);
     this.g = new Float32Array(size);
     this.b = new Float32Array(size);
+    this.flicker = new Uint8Array(size);
   }
 
   get sources(): readonly LightSource[] { return this._sources; }
@@ -51,6 +61,7 @@ export class Lightmap {
     this.r.fill(0);
     this.g.fill(0);
     this.b.fill(0);
+    this.flicker.fill(0);
   }
 
   addSource(src: Omit<LightSource, 'id'>): LightSource {
@@ -80,23 +91,47 @@ export class Lightmap {
         src.r, src.g, src.b,
         blocksLight,
         this,
+        src.flicker ? FLICKER_INDEX[src.flicker] : undefined,
       );
+    }
+  }
+
+  /**
+   * Add a flat ambient light level to tiles matching a predicate.
+   * Values are additive — call after recompute().
+   */
+  addAmbient(
+    r: number, g: number, b: number,
+    predicate: (x: number, y: number) => boolean,
+  ): void {
+    for (let y = 0; y < this.height; y++) {
+      for (let x = 0; x < this.width; x++) {
+        if (predicate(x, y)) {
+          const i = y * this.width + x;
+          this.r[i] = Math.max(this.r[i], r);
+          this.g[i] = Math.max(this.g[i], g);
+          this.b[i] = Math.max(this.b[i], b);
+        }
+      }
     }
   }
 
   /**
    * Upload lightmap RGB and visibility data to canvas contexts for GPU texture upload.
    * Light values are encoded as: texByte = clamp(light * LIGHT_TEXTURE_SCALE, 0, 255).
-   * Visibility is encoded as R channel: 0=UNSEEN, 128=SEEN, 255=VISIBLE.
+   * Visibility texture channels:
+   *   R = visibility: 0=UNSEEN, 128=SEEN, 255=VISIBLE
+   *   G = tile type:  0=VOID, 128=FLOOR, 255=WALL
    */
   uploadToCanvas(
     lightCtx: CanvasRenderingContext2D,
     visCtx: CanvasRenderingContext2D,
     visibility: Uint8Array,
+    tiles?: Uint8Array,
   ): void {
     const { width, height, r, g, b } = this;
 
-    // Light RGB — no Y flip, canvas and world both use Y=0 at top
+    // Light RGB (alpha stays 255 — flicker is encoded in visibility texture B channel)
     const lightData = lightCtx.createImageData(width, height);
     const ld = lightData.data;
     const size = width * height;
@@ -109,15 +144,19 @@ export class Lightmap {
     }
     lightCtx.putImageData(lightData, 0, 0);
 
-    // Visibility: 0=UNSEEN→0, 1=SEEN→128, 2=VISIBLE→255
+    // Visibility + tile type
+    // Visibility (R) + tile type (G) + flicker (B)
     const visData = visCtx.createImageData(width, height);
     const vd = visData.data;
     for (let i = 0; i < size; i++) {
       const pi = i * 4;
       const v = visibility[i];
-      vd[pi] = v === 0 ? 0 : v === 1 ? 128 : 255;
-      vd[pi + 1] = 0;
-      vd[pi + 2] = 0;
+      vd[pi] = v === 0 ? 0 : v === 1 ? 128 : 255;       // R: visibility
+      if (tiles) {
+        const t = tiles[i];
+        vd[pi + 1] = t === 0 ? 0 : t === 1 ? 128 : 255; // G: tile type
+      }
+      vd[pi + 2] = this.flicker[i];                       // B: flicker type
       vd[pi + 3] = 255;
     }
     visCtx.putImageData(visData, 0, 0);

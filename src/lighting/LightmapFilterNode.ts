@@ -35,6 +35,7 @@ export function createLightmapFilterNode(manager: any): any {
     pm.setUniform('uSeenTint', controller.seenTint);
     pm.setUniform('uLightScale', controller.lightScale);
     pm.setUniform('uRevealAll', controller.revealAll);
+    pm.setUniform('uDebugMode', controller.debugMode);
   };
 
   return node;
