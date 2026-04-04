@@ -28,6 +28,8 @@ export const TEX = {
   NEBULA: 'bg_nebula',
   SEVERED_PART: 'entity_severed_part',
   ITEM: 'entity_item',
+  FIRE_SPRITE: 'entity_fire',
+  BLOB_SHADOW: 'entity_shadow',
   // Body part silhouettes (UI icons)
   PART_ARM: 'part_sil_arm',
   PART_LEG: 'part_sil_leg',
@@ -384,15 +386,20 @@ export class BootScene extends Scene {
       ctx.fillRect(0, 0, 8, 8);
     }, 8, 8);
 
-    // ── Severed part (small reddish lump on objects layer) ──
+    // ── Severed part (reddish lump on objects layer) ──
     this.generateTile(TEX.SEVERED_PART, (ctx) => {
-      ctx.fillStyle = '#883333';
+      ctx.fillStyle = '#773322';
       ctx.beginPath();
-      ctx.ellipse(S / 2, S / 2, S * 0.22, S * 0.18, 0, 0, Math.PI * 2);
+      ctx.ellipse(S / 2, S / 2, S * 0.32, S * 0.24, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#aa4444';
+      ctx.fillStyle = '#994433';
       ctx.beginPath();
-      ctx.ellipse(S / 2 - 1, S / 2 - 1, S * 0.12, S * 0.1, 0.3, 0, Math.PI * 2);
+      ctx.ellipse(S / 2 - 1, S / 2 - 1, S * 0.2, S * 0.15, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      // Blood spot
+      ctx.fillStyle = '#661111';
+      ctx.beginPath();
+      ctx.ellipse(S / 2 + 3, S / 2 + 2, S * 0.08, S * 0.06, 0.5, 0, Math.PI * 2);
       ctx.fill();
     });
 
@@ -429,6 +436,37 @@ export class BootScene extends Scene {
       drawBlob(S * 0.3, S * 0.4, S * 0.4, 0.3);
       drawBlob(S * 0.65, S * 0.35, S * 0.35, 0.25);
       drawBlob(S * 0.5, S * 0.65, S * 0.3, 0.2);
+    });
+
+    // ── Fire sprite (animated-looking flame for entity layer) ──
+    this.generateTile(TEX.FIRE_SPRITE, (ctx) => {
+      // Base glow
+      const glow = ctx.createRadialGradient(S / 2, S * 0.6, 0, S / 2, S * 0.5, S * 0.5);
+      glow.addColorStop(0, 'rgba(255, 200, 50, 0.9)');
+      glow.addColorStop(0.4, 'rgba(255, 100, 20, 0.7)');
+      glow.addColorStop(0.8, 'rgba(200, 40, 0, 0.3)');
+      glow.addColorStop(1, 'rgba(100, 20, 0, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, S, S);
+      // Flame tongues
+      ctx.fillStyle = 'rgba(255, 220, 80, 0.8)';
+      ctx.beginPath();
+      ctx.moveTo(S * 0.35, S * 0.7);
+      ctx.quadraticCurveTo(S * 0.3, S * 0.3, S * 0.45, S * 0.15);
+      ctx.quadraticCurveTo(S * 0.5, S * 0.35, S * 0.55, S * 0.2);
+      ctx.quadraticCurveTo(S * 0.65, S * 0.4, S * 0.65, S * 0.7);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    // ── Blob shadow (dark ellipse for grounding entities) ──
+    this.generateTile(TEX.BLOB_SHADOW, (ctx) => {
+      const gradient = ctx.createRadialGradient(S / 2, S * 0.8, 0, S / 2, S * 0.8, S * 0.35);
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
+      gradient.addColorStop(0.6, 'rgba(0, 0, 0, 0.15)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, S, S);
     });
   }
 

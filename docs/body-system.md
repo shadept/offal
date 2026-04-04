@@ -134,7 +134,7 @@ Each species defines `requiredParts` — parts that must remain functional (atta
 
 - **Heart / power_core**: circulation/power. Loss = rapid death.
 - **Lungs**: respiration. Required only by species that breathe atmosphere. Species without lungs are immune to vacuum and toxic gas.
-- **Head**: consciousness. Required by most species.
+- **Head**: consciousness (the part itself contributes to consciousness capacity). Required by most species.
 
 Parts not in `requiredParts` are non-fatal to lose. A stomach is not required — losing it blocks food-based healing, leading to eventual death by starvation, but not immediate death.
 
@@ -285,8 +285,7 @@ Part functional state is derived from HP: `hp > 0` = functional, `hp === 0` = de
 | Component | Fields | Notes |
 |---|---|---|
 | `Health` | hp, maxHp | body HP pool — independent from part HPs, set from species.maxHp |
-| `Body` | speciesIdx | species index for lookups |
-| `CachedCapacity` | mobility, manipulation, consciousness, circulation, structuralIntegrity | recomputed on part changes |
+| `Body` | speciesIdx, mobility, manipulation, consciousness, circulation | capacities recomputed on part changes |
 
 ### Damage Model
 

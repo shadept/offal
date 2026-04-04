@@ -30,7 +30,7 @@
       woundEffect: "bleeding",
       detachedDecayRate: 1,
       onDetach: null,
-      capacityContribution: ["structuralIntegrity"],
+      capacityContribution: null,
     },
     {
       id: "human_arm",
@@ -72,7 +72,7 @@
       woundEffect: "bleeding",
       detachedDecayRate: 3,
       onDetach: null,
-      capacityContribution: ["consciousness"],
+      capacityContribution: null,
     },
     {
       id: "human_heart",
@@ -100,7 +100,7 @@
       woundEffect: "bleeding",
       detachedDecayRate: 3,
       onDetach: null,
-      capacityContribution: ["consciousness"],
+      capacityContribution: ["circulation"],
     },
     {
       id: "human_stomach",

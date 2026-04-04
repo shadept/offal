@@ -16,7 +16,7 @@
       woundEffect: "sparking",
       detachedDecayRate: 0,
       onDetach: null,
-      capacityContribution: ["structuralIntegrity"],
+      capacityContribution: ["consciousness"],
     },
     {
       id: "drone_rotor",
@@ -44,7 +44,7 @@
       woundEffect: "sparking",
       detachedDecayRate: 0,
       onDetach: null,
-      capacityContribution: ["consciousness"],
+      capacityContribution: null,
     },
     {
       id: "drone_power_core",

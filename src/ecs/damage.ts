@@ -8,11 +8,11 @@
  */
 import { hasComponent, addComponent } from 'bitecs';
 import {
-  Health, Body, CachedCapacity, PartIdentity, AttachedTo, Dead, Position,
+  Health, Body, PartIdentity, AttachedTo, Dead, Position,
 } from './components';
 import {
-  getPartsOf, getPartData, recalcCapacities,
-  detachPart, updateSpeedFromCapacity, getSpeciesId, getSlotName,
+  getPartsOf, getPartData, recalcCapacities, recalcFOV,
+  detachPart, getSpeciesId, getSlotName,
 } from './body';
 import { getRegistry } from '../data/loader';
 import { gameLog } from '../ui/gameLog';
@@ -56,7 +56,11 @@ export function applyDamage(
   eventQueue: VisualEventQueue,
 ): DamageResult {
   // Guard: entity may have been removed between turns (stale AI target ref)
-  if (!hasComponent(world, target, Health) || hasComponent(world, target, Dead)) {
+  if (!hasComponent(world, target, Health)) {
+    return { killed: false, targetPartEid: -1, severed: false };
+  }
+  // Dead non-body entities can't take more damage; corpses (Dead + Body) still can
+  if (hasComponent(world, target, Dead) && !hasComponent(world, target, Body)) {
     return { killed: false, targetPartEid: -1, severed: false };
   }
 
@@ -140,49 +144,26 @@ function applyDamageToBody(
       `${attackerName} hits ${targetName}'s ${partName} for ${damage}`);
   }
 
-  let severed = false;
-
-  // Check part death — torso/segment can't be severed (body HP handles death)
+  // Part reaches 0 HP → deactivated (stays attached, dead weight, healable).
+  // Severance is a separate mechanic (critical hits, voluntary amputation) — not triggered by HP loss.
   if (Health.hp[partEid] <= 0) {
-    const isTorso = partDef?.type === 'torso' || partDef?.type === 'segment';
+    eventQueue.push({
+      type: 'part_deactivated',
+      entityId: bodyEid,
+      data: { partEid, partName },
+    });
 
-    if (partDef?.depth === 'external' && !isTorso) {
-      // Sever: detach and drop to floor
-      const x = Position.x[bodyEid];
-      const y = Position.y[bodyEid];
-      detachPart(world, partEid, bodyEid, x, y);
-      severed = true;
-
-      eventQueue.push({
-        type: 'part_severed',
-        entityId: bodyEid,
-        data: { partEid, partName, x, y },
-      });
-
-      gameLog.push(turn, 'combat', `${targetName}'s ${partName} is severed!`);
-    } else {
-      // Internal organ or torso: stays attached but deactivated
-      eventQueue.push({
-        type: 'part_deactivated',
-        entityId: bodyEid,
-        data: { partEid, partName },
-      });
-
-      gameLog.push(turn, 'combat', `${targetName}'s ${partName} is destroyed`);
-    }
+    gameLog.push(turn, 'combat', `${targetName}'s ${partName} is destroyed`);
   }
 
   // Recalculate capacities (mobility, manipulation, etc.) from functional parts.
-  // Body HP is tracked directly — no need to re-sum from parts.
-  if (!severed) {
-    recalcCapacities(bodyEid);
-    updateSpeedFromCapacity(bodyEid);
-  }
+  recalcCapacities(bodyEid);
+  recalcFOV(bodyEid, world);
 
   // Check if creature dies from required part loss
   const killed = checkCreatureDeath(bodyEid, world, eventQueue);
 
-  return { killed, targetPartEid: partEid, severed };
+  return { killed, targetPartEid: partEid, severed: false };
 }
 
 /**
@@ -254,17 +235,25 @@ export function checkCreatureDeath(
     return true;
   }
 
-  // Check circulation (heart destroyed)
-  if (CachedCapacity.circulation[bodyEid] === 0) {
-    addComponent(world, bodyEid, Dead);
-    eventQueue.push({ type: 'death', entityId: bodyEid, data: { cause: 'organ_failure' } });
-    gameLog.push(turnCounter(), 'death', `${nameResolver(bodyEid)} dies from organ failure`);
-    return true;
+  // Check circulation (heart destroyed) — only for species that have circulation parts
+  const registry = getRegistry();
+  const speciesId = getSpeciesId(Body.speciesIdx[bodyEid]);
+  if (Body.circulation[bodyEid] === 0) {
+    const species = speciesId ? registry.species.get(speciesId) : undefined;
+    const speciesHasCirculation = species?.parts?.some((slot: { default: string }) => {
+      const partDef = registry.parts.get(slot.default);
+      return partDef?.capacityContribution?.includes('circulation');
+    }) ?? false;
+    if (speciesHasCirculation) {
+      Health.hp[bodyEid] = 0;
+      addComponent(world, bodyEid, Dead);
+      eventQueue.push({ type: 'death', entityId: bodyEid, data: { cause: 'organ_failure' } });
+      gameLog.push(turnCounter(), 'death', `${nameResolver(bodyEid)} dies from organ failure`);
+      return true;
+    }
   }
 
   // Check required parts from species data
-  const registry = getRegistry();
-  const speciesId = getSpeciesId(Body.speciesIdx[bodyEid]);
   const species = speciesId ? registry.species.get(speciesId) : undefined;
   if (!species?.requiredParts) return false;
 
@@ -279,6 +268,7 @@ export function checkCreatureDeath(
     });
 
     if (!hasRequired) {
+      Health.hp[bodyEid] = 0;
       addComponent(world, bodyEid, Dead);
       eventQueue.push({
         type: 'death',

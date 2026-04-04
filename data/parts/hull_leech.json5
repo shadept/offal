@@ -33,7 +33,7 @@
       woundEffect: "bleeding",
       detachedDecayRate: 1,
       onDetach: { action: "flailing", turns: 2, damage: 2 },
-      capacityContribution: ["mobility", "structuralIntegrity"],
+      capacityContribution: ["mobility"],
     },
     {
       id: "leech_eyes",
@@ -47,7 +47,7 @@
       woundEffect: "bleeding",
       detachedDecayRate: 3,
       onDetach: null,
-      capacityContribution: ["consciousness"],
+      capacityContribution: null,
     },
     {
       id: "leech_heart",
@@ -61,7 +61,7 @@
       woundEffect: "bleeding",
       detachedDecayRate: 3,
       onDetach: null,
-      capacityContribution: ["circulation", "consciousness"],
+      capacityContribution: ["circulation"],
     },
     {
       id: "leech_stomach",

@@ -11,7 +11,7 @@ import { getRegistry } from '../data/loader';
 import {
   Item, HeldBy, Inventory, Position, Renderable, Health,
 } from './components';
-import { getPartsOf } from './body';
+import { getPartsOf, detachPart, recalcCapacities } from './body';
 import type { ItemData, DataRegistry } from '../types';
 import { ITEM_SIZE_VOLUME } from '../types';
 
@@ -211,6 +211,48 @@ export function drop(
   Renderable.layer[itemEid] = 1; // object layer
 
   recalcInventory(creatureEid);
+}
+
+/** Transfer an item directly between two creatures' inventories (no floor step). */
+export function transferItem(
+  world: object,
+  fromEid: number,
+  toEid: number,
+  itemEid: number,
+): boolean {
+  if (!canPickUp(toEid, itemEid)) return false;
+
+  // Update ownership
+  removeFromInventoryIndex(fromEid, itemEid);
+  HeldBy.ownerEid[itemEid] = toEid;
+  addToInventoryIndex(toEid, itemEid);
+
+  recalcInventory(fromEid);
+  recalcInventory(toEid);
+  return true;
+}
+
+/**
+ * Detach a body part from a creature and place it directly into another creature's inventory.
+ * Used for looting body parts from corpses. Detaches to floor first, then picks up.
+ */
+export function takePartFromBody(
+  world: object,
+  partEid: number,
+  bodyEid: number,
+  recipientEid: number,
+): boolean {
+  // Detach to a temporary floor position (uses the body's position)
+  const x = Position.x[bodyEid];
+  const y = Position.y[bodyEid];
+  detachPart(world, partEid, bodyEid, x, y);
+
+  // Now pick up from floor into recipient's inventory
+  if (!pickUp(world, recipientEid, partEid)) {
+    // Failed (no capacity) — part stays on floor
+    return false;
+  }
+  return true;
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -16,20 +16,25 @@
 import { Scene } from 'phaser';
 import { createGameWorld, spawnPlayer, spawnDoor, spawnTeleporter, linkTeleporters } from '../ecs/world';
 import type { ShipGraph } from '../map/shipGen';
-import { addEntity, addComponent, removeEntity, hasComponent, query } from 'bitecs';
+import { addEntity, addComponent, removeEntity, removeComponent, hasComponent, query } from 'bitecs';
 import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
   Health, Faction, CombatStats, Dead, Door, Teleporter, Body,
   Item, HeldBy, Inventory,
 } from '../ecs/components';
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
-import { initBodyIndices, spawnBodyForCreature, getPartsOf, clearPartIndex, attachPart, detachPart, getPartData } from '../ecs/body';
-import { initItemIndices, bindInventoryWorld, pickUp, drop, findItemsAtPosition, getItemData, spawnItemOnFloor, canPickUp, getItemsOf } from '../ecs/inventory';
+import { Lightmap, type LightSource } from '../lighting/Lightmap';
+import { LightmapFilter } from '../lighting/LightmapFilter';
+import { createLightmapFilterNode } from '../lighting/LightmapFilterNode';
+import { initBodyIndices, spawnBodyForCreature, getPartsOf, clearPartIndex, attachPart, detachPart, getPartData, getMovementCostMultiplier } from '../ecs/body';
+import { initItemIndices, bindInventoryWorld, pickUp, drop, findItemsAtPosition, getItemData, spawnItemOnFloor, canPickUp, getItemsOf, transferItem, takePartFromBody } from '../ecs/inventory';
 import { inventoryStore } from '../ui/inventoryStore';
 import { bodyStore } from '../ui/bodyStore';
+import { lootStore } from '../ui/lootStore';
 import { contextMenuStore } from '../ui/contextMenuStore';
 import InventoryPanel from '../ui/InventoryPanel.svelte';
 import BodyPanel from '../ui/BodyPanel.svelte';
+import LootPanel from '../ui/LootPanel.svelte';
 import ContextMenu from '../ui/ContextMenu.svelte';
 import Tooltip from '../ui/Tooltip.svelte';
 import { TurnSystem } from '../ecs/systems/turnSystem';
@@ -99,6 +104,19 @@ export class GameScene extends Scene {
   private fireEmitters = new Map<number, Phaser.GameObjects.Particles.ParticleEmitter>();
   /** Gas overlay sprites indexed by tile flat index */
   private gasOverlays = new Map<number, Phaser.GameObjects.Image>();
+  /** Entity HP bar graphics overlay (redrawn each frame) */
+  private hpBarGraphics!: Phaser.GameObjects.Graphics;
+
+  // ── Lighting ──
+  private lightmap!: Lightmap;
+  private lightmapFilter!: LightmapFilter;
+  private lightmapCanvas!: HTMLCanvasElement;
+  private lightmapCtx!: CanvasRenderingContext2D;
+  private visCanvas!: HTMLCanvasElement;
+  private visCtx!: CanvasRenderingContext2D;
+  private playerLightSource!: LightSource;
+  private fireLightSources = new Map<number, LightSource>(); // keyed by tile index
+  private shadowSprites = new Map<number, Phaser.GameObjects.Image>(); // entity blob shadows
   /** Gas particle emitters indexed by tile flat index */
   private gasEmitters = new Map<number, Phaser.GameObjects.Particles.ParticleEmitter>();
 
@@ -133,8 +151,10 @@ export class GameScene extends Scene {
   private graphKey!: Phaser.Input.Keyboard.Key;
   private inventoryKey!: Phaser.Input.Keyboard.Key;
   private bodyKey!: Phaser.Input.Keyboard.Key;
+  private interactKey!: Phaser.Input.Keyboard.Key;
   private inventoryPanelHandle: Record<string, unknown> | null = null;
   private bodyPanelHandle: Record<string, unknown> | null = null;
+  private lootPanelHandle: Record<string, unknown> | null = null;
   private contextMenuHandle: Record<string, unknown> | null = null;
   private tooltipHandle: Record<string, unknown> | null = null;
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
@@ -196,6 +216,8 @@ export class GameScene extends Scene {
     this.tileContainer = this.add.container(0, 0);
     this.overlayContainer = this.add.container(0, 0);
     this.entityContainer = this.add.container(0, 0);
+    this.hpBarGraphics = this.add.graphics();
+    this.hpBarGraphics.setDepth(3); // above entities
 
     // ── Tile physics state ──
     this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
@@ -273,6 +295,27 @@ export class GameScene extends Scene {
     // ── Spawn map-defined entities ──
     this.spawnMapEntities(shipResult.spawns);
 
+    // ── Lighting system ──
+    this.lightmap = new Lightmap(this.tileMap.width, this.tileMap.height);
+    this.lightmapCanvas = document.createElement('canvas');
+    this.lightmapCanvas.width = this.tileMap.width;
+    this.lightmapCanvas.height = this.tileMap.height;
+    this.lightmapCtx = this.lightmapCanvas.getContext('2d')!;
+    this.visCanvas = document.createElement('canvas');
+    this.visCanvas.width = this.tileMap.width;
+    this.visCanvas.height = this.tileMap.height;
+    this.visCtx = this.visCanvas.getContext('2d')!;
+    this.textures.addCanvas('_lightmap', this.lightmapCanvas);
+    this.textures.addCanvas('_visibility', this.visCanvas);
+
+    // Player light source
+    this.playerLightSource = this.lightmap.addSource({
+      x: Position.x[this.playerEid],
+      y: Position.y[this.playerEid],
+      r: 1.0, g: 0.95, b: 0.85, // warm white
+      radius: FOV.range[this.playerEid] || 8,
+    });
+
     // ── Initial FOV ──
     this.updateFOV();
     this.renderTiles();
@@ -281,6 +324,42 @@ export class GameScene extends Scene {
     const playerSprite = this.entitySprites.get(this.playerEid)!;
     this.cameras.main.startFollow(playerSprite, true, 0.15, 0.15,
       -TILE_SIZE / 2, -TILE_SIZE / 2);
+
+    // ── Lightmap shader filter ──
+    try {
+      const renderer = this.game.renderer;
+      if (renderer && 'renderNodes' in renderer) {
+        const webglRenderer = renderer as any;
+        const filterNode = createLightmapFilterNode(webglRenderer.renderNodes);
+        webglRenderer.renderNodes.addNode('FilterLightmap', filterNode);
+        this.lightmapFilter = new LightmapFilter(this.cameras.main, {
+          mapWidth: this.tileMap.width,
+          mapHeight: this.tileMap.height,
+          tileSize: TILE_SIZE,
+          lightmapTextureKey: '_lightmap',
+          visibilityTextureKey: '_visibility',
+        });
+        (this.cameras.main.filters as any).external.add(this.lightmapFilter);
+
+        // Set lightmap texture to LINEAR filtering for smooth interpolation
+        // (pixelArt:true forces NEAREST globally, but lightmap needs bilinear)
+        const gl = (webglRenderer as any).gl as WebGLRenderingContext;
+        if (gl && this.lightmapFilter.lightmapGlTexture) {
+          const glTex = this.lightmapFilter.lightmapGlTexture;
+          if (glTex.webGLTexture) {
+            gl.bindTexture(gl.TEXTURE_2D, glTex.webGLTexture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.bindTexture(gl.TEXTURE_2D, null);
+          }
+        }
+
+        console.log('[lighting] Shader filter enabled');
+      }
+    } catch (e) {
+      console.warn('[lighting] Shader setup failed, using CPU fallback', e);
+      this.lightmapFilter = null as any;
+    }
 
     // ── Register visual event handlers ──
     this.registerEventHandlers();
@@ -300,12 +379,14 @@ export class GameScene extends Scene {
     this.graphKey = this.input.keyboard!.addKey('G');
     this.inventoryKey = this.input.keyboard!.addKey('I');
     this.bodyKey = this.input.keyboard!.addKey('B');
+    this.interactKey = this.input.keyboard!.addKey('E');
 
     // ── Ambient: spark emitter on wall edges ──
     this.setupAmbientEffects();
 
     // ── HUD ──
     this.hud = new HUD();
+    this.hud.bindWorld(this.world);
     this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase);
 
     // ── Sandbox ──
@@ -374,11 +455,12 @@ export class GameScene extends Scene {
       (eid: number) => {
         if (eid === this.playerEid) return 'You';
         const speciesId = this.entitySpecies.get(eid);
+        const dead = hasComponent(this.world, eid, Dead) ? ' (dead)' : '';
         if (speciesId) {
           const species = getRegistry().species.get(speciesId);
-          return `${species?.name ?? speciesId} #${eid}`;
+          return `${species?.name ?? speciesId} #${eid}${dead}`;
         }
-        return `entity #${eid}`;
+        return `entity #${eid}${dead}`;
       },
       () => this.turnSystem.turnCount,
     );
@@ -426,6 +508,42 @@ export class GameScene extends Scene {
       },
     });
 
+    // ── Loot panel ──
+    lootStore.bindWorld(this.world);
+    this.lootPanelHandle = mount(LootPanel, {
+      target: document.body,
+      props: {
+        playerEid: this.playerEid,
+        world: this.world,
+        onTakeItem: (corpseEid: number, itemEid: number) => {
+          if (!transferItem(this.world, corpseEid, this.playerEid, itemEid)) {
+            gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+            return;
+          }
+          const name = getItemData(itemEid)?.name ?? 'item';
+          gameLog.push(this.turnSystem.turnCount, 'system', `Took ${name}`);
+        },
+        onTakePart: (corpseEid: number, partEid: number) => {
+          const name = getPartData(partEid)?.name ?? 'part';
+          if (!takePartFromBody(this.world, partEid, corpseEid, this.playerEid)) {
+            gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+            return;
+          }
+          // Part was detached to floor then picked up — remove floor sprite if any
+          this.removeEntitySprite(partEid);
+          gameLog.push(this.turnSystem.turnCount, 'system', `Took ${name}`);
+        },
+        onDropItem: (itemEid: number) => {
+          const x = Position.x[this.playerEid];
+          const y = Position.y[this.playerEid];
+          drop(this.world, this.playerEid, itemEid, x, y);
+          this.createItemSprite(itemEid);
+          gameLog.push(this.turnSystem.turnCount, 'system',
+            `Dropped ${getItemData(itemEid)?.name ?? 'item'}`);
+        },
+      },
+    });
+
     // ── Context menu ──
     this.contextMenuHandle = mount(ContextMenu, { target: document.body });
 
@@ -458,7 +576,7 @@ export class GameScene extends Scene {
       // Find entities with Body at that tile
       const targets: number[] = [];
       for (const [eid] of this.entitySprites) {
-        if (eid === this.playerEid) continue;
+        if (eid === this.playerEid && !this.sandbox.active) continue;
         if (!hasComponent(this.world, eid, Body)) continue;
         if (Position.x[eid] === tileX && Position.y[eid] === tileY) {
           targets.push(eid);
@@ -468,13 +586,22 @@ export class GameScene extends Scene {
 
       const targetEid = targets[0];
       const isDead = hasComponent(this.world, targetEid, Dead);
-      contextMenuStore.show(e.clientX, e.clientY, targetEid, [
+      const isPlayer = targetEid === this.playerEid;
+      const actions = [
         {
           label: isDead ? 'Inspect Body' : 'Inspect',
           enabled: true,
-          callback: () => bodyStore.inspect(targetEid, false),
+          callback: () => bodyStore.inspect(targetEid, isPlayer),
         },
-      ]);
+      ];
+      if (isDead) {
+        actions.unshift({
+          label: 'Loot',
+          enabled: true,
+          callback: () => lootStore.loot(targetEid),
+        });
+      }
+      contextMenuStore.show(e.clientX, e.clientY, targetEid, actions);
     });
 
     // ── Auto-attach from inventory double-click ──
@@ -583,6 +710,10 @@ export class GameScene extends Scene {
       unmount(this.bodyPanelHandle as ReturnType<typeof mount>);
       this.bodyPanelHandle = null;
     }
+    if (this.lootPanelHandle) {
+      unmount(this.lootPanelHandle as ReturnType<typeof mount>);
+      this.lootPanelHandle = null;
+    }
     if (this.contextMenuHandle) {
       unmount(this.contextMenuHandle as ReturnType<typeof mount>);
       this.contextMenuHandle = null;
@@ -620,6 +751,11 @@ export class GameScene extends Scene {
     // ── Body panel toggle (B key) ──
     if (Phaser.Input.Keyboard.JustDown(this.bodyKey)) {
       bodyStore.toggle(this.playerEid);
+    }
+
+    // ── Interact (E key) — loot corpses, pick up items ──
+    if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
+      this.handleInteract();
     }
 
     // ── Sandbox mode ──
@@ -686,9 +822,43 @@ export class GameScene extends Scene {
     this.idleTime += delta;
     this.updateIdleAnimations();
 
-    // ── HUD ──
+    // ── HUD + HP bars ──
     const fps = this.game.loop.actualFps;
     this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase, this.sandbox.active, fps);
+    this.renderEntityHpBars();
+  }
+
+  /** Draw HP bars above visible entities with Body component (not the player). */
+  private renderEntityHpBars(): void {
+    this.hpBarGraphics.clear();
+    const barW = 20;
+    const barH = 3;
+    const barYOffset = -3; // above the sprite
+
+    for (const [eid, sprite] of this.entitySprites) {
+      if (eid === this.playerEid) continue;
+      if (!hasComponent(this.world, eid, Body)) continue;
+      if (!sprite.visible) continue;
+
+      const hp = Health.hp[eid];
+      const maxHp = Health.maxHp[eid];
+      if (maxHp <= 0) continue;
+
+      const ratio = hp / maxHp;
+      if (ratio >= 1) continue; // don't show at full HP
+
+      const x = sprite.x + (TILE_SIZE - barW) / 2;
+      const y = sprite.y + barYOffset;
+
+      // Background
+      this.hpBarGraphics.fillStyle(0x111122, 0.8);
+      this.hpBarGraphics.fillRect(x, y, barW, barH);
+
+      // Fill
+      const color = ratio > 0.6 ? 0x4ec9b0 : ratio > 0.3 ? 0xc9a84e : 0xe94560;
+      this.hpBarGraphics.fillStyle(color, 0.9);
+      this.hpBarGraphics.fillRect(x, y, Math.round(barW * ratio), barH);
+    }
   }
 
   // ════════════════════════════════════════════════════════════
@@ -719,10 +889,11 @@ export class GameScene extends Scene {
     }
   }
 
-  /** Update tile sprite textures and visibility based on FOV */
+  /** Update tile sprite textures and visibility based on FOV + lightmap. */
   private renderTiles(): void {
     const { width, height } = this.tileMap;
     const revealAll = this.sandbox?.revealAll;
+    const useShader = !!this.lightmapFilter;
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
@@ -730,7 +901,6 @@ export class GameScene extends Scene {
         const sprite = this.tileSprites[idx];
         if (!sprite) continue;
 
-        // Update texture (tiles may have been painted/destroyed)
         sprite.setTexture(this.getTileTexture(this.tileMap.tiles[idx]));
 
         if (revealAll) {
@@ -748,16 +918,20 @@ export class GameScene extends Scene {
         }
 
         sprite.setVisible(true);
+        sprite.setAlpha(1);
 
-        if (vis === Visibility.VISIBLE) {
-          const light = this.tileMap.light[idx] / 255;
-          const alpha = 0.4 + light * 0.6;
-          sprite.setAlpha(alpha);
+        if (useShader) {
+          // Shader handles lighting — just render white
           sprite.setTint(0xffffff);
+        } else if (vis === Visibility.VISIBLE) {
+          // CPU fallback: apply lightmap as tint
+          const lr = Math.min(255, Math.round(Math.max(0.06, this.lightmap.r[idx]) * 255));
+          const lg = Math.min(255, Math.round(Math.max(0.06, this.lightmap.g[idx]) * 255));
+          const lb = Math.min(255, Math.round(Math.max(0.06, this.lightmap.b[idx]) * 255));
+          sprite.setTint((lr << 16) | (lg << 8) | lb);
         } else {
-          // Previously seen — dim blue tint
-          sprite.setAlpha(0.35);
-          sprite.setTint(0x667788);
+          // SEEN — solid desaturated gray
+          sprite.setTint(0x607080);
         }
       }
     }
@@ -776,6 +950,16 @@ export class GameScene extends Scene {
     sprite.setOrigin(0, 0);
     this.entityContainer.add(sprite);
     this.entitySprites.set(eid, sprite);
+
+    // Blob shadow for creatures (not items/parts)
+    if (speciesId && this.textures.exists(TEX.BLOB_SHADOW)) {
+      const shadow = this.add.image(px, py, TEX.BLOB_SHADOW);
+      shadow.setOrigin(0, 0);
+      shadow.setDepth(-0.5);
+      this.entityContainer.add(shadow);
+      this.shadowSprites.set(eid, shadow);
+    }
+
     return sprite;
   }
 
@@ -785,6 +969,11 @@ export class GameScene extends Scene {
       sprite.destroy();
       this.entitySprites.delete(eid);
       this.entitySpecies.delete(eid);
+    }
+    const shadow = this.shadowSprites.get(eid);
+    if (shadow) {
+      shadow.destroy();
+      this.shadowSprites.delete(eid);
     }
   }
 
@@ -803,16 +992,76 @@ export class GameScene extends Scene {
   private syncEntitySprite(eid: number): void {
     const sprite = this.entitySprites.get(eid);
     if (!sprite) return;
-    sprite.setPosition(Position.x[eid] * TILE_SIZE, Position.y[eid] * TILE_SIZE);
+    const px = Position.x[eid] * TILE_SIZE;
+    const py = Position.y[eid] * TILE_SIZE;
+    sprite.setPosition(px, py);
+    // Sync blob shadow
+    const shadow = this.shadowSprites.get(eid);
+    if (shadow) {
+      shadow.setPosition(px, py);
+      shadow.setVisible(sprite.visible);
+    }
   }
 
   // ════════════════════════════════════════════════════════════
   // INPUT
   // ════════════════════════════════════════════════════════════
 
+  /** Handle E key: interact with corpses/items on the player's tile. */
+  private handleInteract(): void {
+    if (lootStore.open) { lootStore.close(); return; }
+    if (hasComponent(this.world, this.playerEid, Body) && Body.manipulation[this.playerEid] === 0) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot interact — no manipulation');
+      return;
+    }
+
+    const px = Position.x[this.playerEid];
+    const py = Position.y[this.playerEid];
+
+    // Find corpses on this tile
+    const corpses: number[] = [];
+    for (const [eid] of this.entitySprites) {
+      if (eid === this.playerEid) continue;
+      if (!hasComponent(this.world, eid, Dead) || !hasComponent(this.world, eid, Body)) continue;
+      if (Position.x[eid] === px && Position.y[eid] === py) {
+        corpses.push(eid);
+      }
+    }
+
+    if (corpses.length === 1) {
+      // Single corpse — open loot directly
+      lootStore.loot(corpses[0]);
+    } else if (corpses.length > 1) {
+      // Multiple — show selection menu at screen center
+      const cx = this.game.canvas.width / 2;
+      const cy = this.game.canvas.height / 2;
+      const actions = corpses.map(eid => {
+        const speciesId = this.entitySpecies.get(eid);
+        const species = speciesId ? getRegistry().species.get(speciesId) : undefined;
+        const name = species?.name ?? `entity #${eid}`;
+        return {
+          label: `${name} (dead)`,
+          enabled: true,
+          callback: () => lootStore.loot(eid),
+        };
+      });
+      contextMenuStore.show(cx, cy, -1, actions);
+    }
+    // If no corpses, could handle items — but auto-pickup covers that
+  }
+
   private handlePlayerInput(): void {
     if (this.inputCooldown > 0) return;
-    if (inventoryStore.open || bodyStore.open) return; // UI panel open — don't move
+
+    // Unconscious: auto-wait so turns pass (physics/regen still process)
+    if (hasComponent(this.world, this.playerEid, Body) && Body.consciousness[this.playerEid] < 10) {
+      this.turnSystem.submitAction(0, 0);
+      this.inputCooldown = 300;
+      this.inputReleasedSinceAction = false;
+      return;
+    }
+
+    if (inventoryStore.open || bodyStore.open || lootStore.open) return; // UI panel open — don't move
 
     let dx = 0;
     let dy = 0;
@@ -841,12 +1090,21 @@ export class GameScene extends Scene {
       this.waitKey.isDown;
   }
 
-  /** Snap every entity sprite to its committed ECS position, resetting visual state. */
+  /** Snap every entity sprite to its committed ECS position, resetting visual state.
+   *  Shader handles lighting/tinting — sprites just need white tint and full alpha. */
   private syncAllEntitySprites(): void {
     for (const [eid, sprite] of this.entitySprites) {
-      sprite.setTint(0xffffff);
-      sprite.setAlpha(1);
-      sprite.setScale(1);
+      if (hasComponent(this.world, eid, Dead) && hasComponent(this.world, eid, Body)) {
+        // Corpse: keep lowered depth so living entities render on top
+        sprite.setTint(0x664422);
+        sprite.setAlpha(0.7);
+        sprite.setScale(1);
+        sprite.setDepth(-1);
+      } else {
+        sprite.setTint(0xffffff);
+        sprite.setAlpha(1);
+        sprite.setScale(1);
+      }
       this.syncEntitySprite(eid);
     }
   }
@@ -893,12 +1151,34 @@ export class GameScene extends Scene {
     this.turnSystem.onEnemyAnimationComplete(this.world);
   }
 
-  /** Remove sprites and ECS entities for all entities marked Dead. */
+  /** Process dead entities: Body entities become corpses, others are removed. */
   private cleanupDeadEntities(): void {
     const dead = query(this.world, [Dead]);
     for (const eid of [...dead]) {
-      this.removeDeadEntity(eid);
+      if (hasComponent(this.world, eid, Body) && hasComponent(this.world, eid, Turn)) {
+        // Fresh kill — transition to corpse (strip active components, keep entity)
+        this.transitionToCorpse(eid);
+      } else if (!hasComponent(this.world, eid, Body)) {
+        // Non-body entity — remove entirely
+        this.removeDeadEntity(eid);
+      }
+      // else: already a corpse (Body + Dead, no Turn) — skip
     }
+  }
+
+  /** Strip active components from a dead Body entity, turning it into a lootable corpse. */
+  private transitionToCorpse(eid: number): void {
+    if (hasComponent(this.world, eid, Turn)) removeComponent(this.world, eid, Turn);
+    if (hasComponent(this.world, eid, AI)) removeComponent(this.world, eid, AI);
+    if (hasComponent(this.world, eid, FOV)) removeComponent(this.world, eid, FOV);
+    if (hasComponent(this.world, eid, BlocksMovement)) removeComponent(this.world, eid, BlocksMovement);
+    // Capacities will be naturally zero — dead body has 0 HP parts,
+    // degradation curves return 0, and stamina modifier is 0.5 with 0 body HP.
+    // No manual zeroing needed.
+    // Update tile blockage map
+    const idx = this.tileMap.idx(Position.x[eid], Position.y[eid]);
+    this.tileMap.entityBlocksMovement[idx] = 0;
+    clearEntityAICache(eid);
   }
 
   // ════════════════════════════════════════════════════════════
@@ -930,11 +1210,23 @@ export class GameScene extends Scene {
       }
     }
 
+    // Block movement if immobile (mobility = 0), but allow wait
+    const mobilityMult = getMovementCostMultiplier(this.playerEid);
+    if ((dx !== 0 || dy !== 0) && !isFinite(mobilityMult)) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot move — immobile');
+      // Still costs a turn (waiting)
+      this.turnSystem.deductEnergy(this.playerEid, 100);
+      this.turnSystem.advance(this.world);
+      this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
+      return;
+    }
+
     // Try to move
     const result = tryMove(this.playerEid, dx, dy, this.tileMap, this.eventQueue, this.world);
 
     // Auto-pickup: if player moved onto a tile with items, pick up if only one + space
-    if (result.cost > 0) {
+    const canManipulate = !hasComponent(this.world, this.playerEid, Body) || Body.manipulation[this.playerEid] > 0;
+    if (result.cost > 0 && canManipulate) {
       const px = Position.x[this.playerEid];
       const py = Position.y[this.playerEid];
       const floorItems = findItemsAtPosition(px, py, 10000);
@@ -951,8 +1243,8 @@ export class GameScene extends Scene {
       }
     }
 
-    // Deduct energy — bumping a wall still costs a turn (like waiting)
-    const cost = result.cost > 0 ? result.cost : 100;
+    // Deduct energy — movement cost scaled by mobility, wall bump/wait is fixed
+    const cost = result.cost > 0 ? Math.round(result.cost * mobilityMult) : 100;
     this.turnSystem.deductEnergy(this.playerEid, cost);
 
     // Advance to animation phase
@@ -1144,6 +1436,7 @@ export class GameScene extends Scene {
       }
 
       // Flash red then restore
+      const isCorpse = hasComponent(this.world, event.entityId, Dead) && hasComponent(this.world, event.entityId, Body);
       sprite.setTint(0xff2222);
       this.tweens.add({
         targets: sprite,
@@ -1151,8 +1444,8 @@ export class GameScene extends Scene {
         duration: HIT_FLASH_DURATION / 2,
         yoyo: true,
         onComplete: () => {
-          sprite.setTint(0xffffff);
-          sprite.setAlpha(1);
+          sprite.setTint(isCorpse ? 0x664422 : 0xffffff);
+          sprite.setAlpha(isCorpse ? 0.7 : 1);
           onComplete();
         },
       });
@@ -1167,9 +1460,19 @@ export class GameScene extends Scene {
       const ex = Position.x[eid];
       const ey = Position.y[eid];
       const visible = this.tileMap.getVisibility(ex, ey) === Visibility.VISIBLE;
+      const isBody = hasComponent(this.world, eid, Body);
 
       if (!sprite || this.eventQueue.skipMode || !visible) {
-        this.destroyEntitySprite(eid);
+        if (isBody) {
+          // Corpse: apply final appearance immediately
+          if (sprite) {
+            sprite.setTint(0x664422);
+            sprite.setAlpha(0.7);
+            sprite.setDepth(-1);
+          }
+        } else {
+          this.destroyEntitySprite(eid);
+        }
         onComplete();
         return;
       }
@@ -1178,19 +1481,34 @@ export class GameScene extends Scene {
       sprite.setTint(0xffffff);
       sprite.setAlpha(1);
 
-      // Scale-down death animation
-      this.tweens.add({
-        targets: sprite,
-        scaleX: 0,
-        scaleY: 0,
-        alpha: 0,
-        duration: DEATH_DURATION,
-        ease: 'Quad.easeIn',
-        onComplete: () => {
-          this.destroyEntitySprite(eid);
-          onComplete();
-        },
-      });
+      if (isBody) {
+        // Corpse: fade to bloody brown tint
+        this.tweens.add({
+          targets: sprite,
+          alpha: 0.7,
+          duration: DEATH_DURATION,
+          ease: 'Quad.easeOut',
+          onComplete: () => {
+            sprite.setTint(0x664422);
+            sprite.setDepth(-1);
+            onComplete();
+          },
+        });
+      } else {
+        // Non-body: scale-down death animation + destroy
+        this.tweens.add({
+          targets: sprite,
+          scaleX: 0,
+          scaleY: 0,
+          alpha: 0,
+          duration: DEATH_DURATION,
+          ease: 'Quad.easeIn',
+          onComplete: () => {
+            this.destroyEntitySprite(eid);
+            onComplete();
+          },
+        });
+      }
     });
 
     // ── Fire spread event ──
@@ -1669,15 +1987,27 @@ export class GameScene extends Scene {
     const isOnFire = this.tilePhysics.hasSurfaceState(x, y, 'on_fire');
 
     if (isOnFire && !this.fireOverlays.has(idx)) {
-      // Create fire overlay sprite
-      const sprite = this.add.image(x * TILE_SIZE, y * TILE_SIZE, TEX.FIRE_OVERLAY);
+      // Create fire sprite in entity layer (not overlay)
+      const sprite = this.add.image(x * TILE_SIZE, y * TILE_SIZE, TEX.FIRE_SPRITE);
       sprite.setOrigin(0, 0);
       sprite.setBlendMode('ADD');
       sprite.setDepth(1);
-      this.overlayContainer.add(sprite);
+      this.entityContainer.add(sprite);
       this.fireOverlays.set(idx, sprite);
 
-      // Create fire particle emitter for ambient effect
+      // Flicker tween on the fire sprite
+      this.tweens.add({
+        targets: sprite,
+        alpha: { from: 0.7, to: 1.0 },
+        scaleX: { from: 0.9, to: 1.1 },
+        scaleY: { from: 0.95, to: 1.05 },
+        duration: 300,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+
+      // Create fire particle emitter for smoke/sparks
       const emitter = this.add.particles(
         x * TILE_SIZE + TILE_SIZE / 2,
         y * TILE_SIZE + TILE_SIZE / 2,
@@ -1694,9 +2024,19 @@ export class GameScene extends Scene {
         },
       );
       this.fireEmitters.set(idx, emitter);
+
+      // Register fire light source
+      const lightSrc = this.lightmap.addSource({
+        x, y,
+        r: 1.3, g: 0.6, b: 0.2, // orange
+        radius: 4,
+        flicker: 'fire',
+      });
+      this.fireLightSources.set(idx, lightSrc);
     } else if (!isOnFire && this.fireOverlays.has(idx)) {
-      // Remove fire overlay
+      // Remove fire sprite
       const sprite = this.fireOverlays.get(idx)!;
+      this.tweens.killTweensOf(sprite);
       sprite.destroy();
       this.fireOverlays.delete(idx);
 
@@ -1704,6 +2044,13 @@ export class GameScene extends Scene {
       if (emitter) {
         emitter.destroy();
         this.fireEmitters.delete(idx);
+      }
+
+      // Remove fire light source
+      const lightSrc = this.fireLightSources.get(idx);
+      if (lightSrc) {
+        this.lightmap.removeSource(lightSrc.id);
+        this.fireLightSources.delete(idx);
       }
     }
   }
@@ -1830,38 +2177,88 @@ export class GameScene extends Scene {
   // ════════════════════════════════════════════════════════════
 
   private updateFOV(): void {
+    // Update shader revealAll flag
+    if (this.lightmapFilter) {
+      this.lightmapFilter.revealAll = this.sandbox?.revealAll ? 1.0 : 0.0;
+    }
+
     if (this.sandbox?.revealAll) {
       // Reveal entire map
       const { width, height } = this.tileMap;
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-          const idx = this.tileMap.idx(x, y);
-          this.tileMap.visibility[idx] = Visibility.VISIBLE;
-          this.tileMap.light[idx] = 255;
+          this.tileMap.visibility[this.tileMap.idx(x, y)] = Visibility.VISIBLE;
         }
       }
       // All entities visible
       for (const [, sprite] of this.entitySprites) {
         sprite.setVisible(true);
+        sprite.setTint(0xffffff);
+        sprite.setAlpha(1);
       }
-      return;
+    } else {
+      const px = Position.x[this.playerEid];
+      const py = Position.y[this.playerEid];
+      const range = FOV.range[this.playerEid];
+      computeFOV(this.tileMap, px, py, range);
+
+      // Update entity visibility
+      const useShader = !!this.lightmapFilter;
+      for (const [eid, sprite] of this.entitySprites) {
+        if (eid === this.playerEid) {
+          sprite.setVisible(true);
+          if (!useShader) {
+            const pidx = this.tileMap.idx(Position.x[eid], Position.y[eid]);
+            const pr = Math.min(255, Math.round(Math.max(0.06, this.lightmap.r[pidx]) * 255));
+            const pg = Math.min(255, Math.round(Math.max(0.06, this.lightmap.g[pidx]) * 255));
+            const pb = Math.min(255, Math.round(Math.max(0.06, this.lightmap.b[pidx]) * 255));
+            sprite.setTint((pr << 16) | (pg << 8) | pb);
+          } else {
+            sprite.setTint(0xffffff);
+          }
+          continue;
+        }
+        const ex = Position.x[eid];
+        const ey = Position.y[eid];
+        const vis = this.tileMap.getVisibility(ex, ey);
+
+        if (vis === Visibility.VISIBLE) {
+          sprite.setVisible(true);
+          sprite.setAlpha(1);
+          if (!useShader) {
+            const eidx = this.tileMap.idx(ex, ey);
+            const er = Math.min(255, Math.round(Math.max(0.06, this.lightmap.r[eidx]) * 255));
+            const eg = Math.min(255, Math.round(Math.max(0.06, this.lightmap.g[eidx]) * 255));
+            const eb = Math.min(255, Math.round(Math.max(0.06, this.lightmap.b[eidx]) * 255));
+            sprite.setTint((er << 16) | (eg << 8) | eb);
+          } else {
+            sprite.setTint(0xffffff);
+          }
+        } else if (vis === Visibility.SEEN) {
+          const isStatic = !hasComponent(this.world, eid, Turn) || hasComponent(this.world, eid, Dead);
+          sprite.setVisible(isStatic);
+          if (isStatic) {
+            sprite.setTint(useShader ? 0xffffff : 0x607080);
+          }
+        } else {
+          sprite.setVisible(false);
+        }
+      }
     }
 
-    const px = Position.x[this.playerEid];
-    const py = Position.y[this.playerEid];
-    const range = FOV.range[this.playerEid];
-    computeFOV(this.tileMap, px, py, range);
+    // ── Recompute lightmap ──
+    this.lightmap.updateSource(this.playerLightSource.id,
+      Position.x[this.playerEid], Position.y[this.playerEid]);
+    this.lightmap.recompute((x, y) => this.tileMap.blocksLight(x, y));
 
-    // Update entity visibility
-    for (const [eid, sprite] of this.entitySprites) {
-      if (eid === this.playerEid) {
-        sprite.setVisible(true);
-        continue;
-      }
-      const ex = Position.x[eid];
-      const ey = Position.y[eid];
-      const vis = this.tileMap.getVisibility(ex, ey);
-      sprite.setVisible(vis === Visibility.VISIBLE);
+    // Upload to GPU textures for shader
+    if (this.lightmapFilter) {
+      this.lightmap.uploadToCanvas(this.lightmapCtx, this.visCtx, this.tileMap.visibility);
+      const lightTex = this.textures.get('_lightmap');
+      if (lightTex) (lightTex as any).update();
+      const visTex = this.textures.get('_visibility');
+      if (visTex) (visTex as any).update();
+      this.lightmapFilter.refreshTextures();
     }
   }
 

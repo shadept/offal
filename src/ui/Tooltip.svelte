@@ -55,6 +55,9 @@
   </div>
   <div class="tt-divider"></div>
   <div class="tt-stats">{data.stats}</div>
+  {#if data.coverage}
+    <div class="tt-coverage">{data.coverage}</div>
+  {/if}
   {#if data.capacities}
     <div class="tt-capacities">{data.capacities}</div>
   {/if}
@@ -118,6 +121,11 @@
   .tt-stats {
     color: #778888;
     font-size: 0.65rem;
+  }
+  .tt-coverage {
+    color: #887766;
+    font-size: 0.65rem;
+    margin-top: 0.15rem;
   }
   .tt-capacities {
     color: #5a8a7a;

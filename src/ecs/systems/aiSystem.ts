@@ -12,10 +12,11 @@
  */
 import { query, hasComponent, addComponent } from 'bitecs';
 import {
-  AI, AIState, Turn, PlayerTag, Position, FOV,
+  AI, AIState, Turn, PlayerTag, Position, FOV, Body,
   Health, Faction, CombatStats, Dead, BlocksMovement,
 } from '../components';
 import { areHostile } from '../factions';
+import { getMovementCostMultiplier } from '../body';
 import { TileMap } from '../../map/TileMap';
 import { getRegistry } from '../../data/loader';
 import { getClosedDoorAt, openDoorEntity, checkTeleport } from './movementSystem';
@@ -126,6 +127,11 @@ export function processAITurns(
     if (players.includes(eid)) continue;
     if (hasComponent(world, eid, Dead)) continue;
     if (Turn.energy[eid] < ACTION_COST) continue;
+    // Unconscious: skip voluntary action but still deduct energy so turns pass
+    if (hasComponent(world, eid, Body) && Body.consciousness[eid] < 10) {
+      Turn.energy[eid] -= ACTION_COST;
+      continue;
+    }
 
     processEntity(eid, allCombatants, map, world, eventQueue, pendingTiles);
     Turn.energy[eid] -= ACTION_COST;

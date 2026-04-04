@@ -295,7 +295,7 @@ function damageEntitiesOnTile(
   const registry = getRegistry();
   const entities = query(world, [Position, Health]);
   for (const eid of entities) {
-    if (hasComponent(world, eid, Dead)) continue;
+    if (hasComponent(world, eid, Dead) && !hasComponent(world, eid, Body)) continue;
     if (Position.x[eid] !== x || Position.y[eid] !== y) continue;
     if (hasComponent(world, eid, Door)) continue;
 
@@ -363,7 +363,8 @@ function processPartBurning(
   const entities = query(world, [Position, Health, Body]);
 
   for (const eid of entities) {
-    if (hasComponent(world, eid, Dead)) continue;
+    // Corpses (Dead + Body) can still burn; skip other dead entities
+    if (hasComponent(world, eid, Dead) && !hasComponent(world, eid, Body)) continue;
 
     const onFireTile = physics.hasSurfaceState(Position.x[eid], Position.y[eid], 'on_fire');
 

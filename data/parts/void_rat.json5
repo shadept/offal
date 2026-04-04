@@ -1,6 +1,6 @@
 // Void Rat body parts — small quadruped vermin
-// Part HPs sum to 10 (matching species maxHp)
-// Torso-dominant: body has 4 HP and ~56% coverage
+// Part HPs sum to 12 (matching species maxHp)
+// Torso-dominant: body has 4 HP and ~50% coverage
 // Tiny legs at 1 HP — fragile vermin, legs rarely targeted individually
 {
   parts: [
@@ -30,7 +30,7 @@
       woundEffect: "bleeding",
       detachedDecayRate: 2,
       onDetach: null,
-      capacityContribution: ["structuralIntegrity", "circulation"],
+      capacityContribution: null,
     },
     {
       id: "rat_leg",
@@ -45,6 +45,34 @@
       detachedDecayRate: 3,
       onDetach: null,
       capacityContribution: ["mobility"],
+    },
+    {
+      id: "rat_heart",
+      name: "Rat Heart",
+      type: "organ",
+      species: "void_rat",
+      material: "organic",
+      maxHp: 2,
+      hitWeight: 3,
+      depth: "internal",
+      woundEffect: "bleeding",
+      detachedDecayRate: 3,
+      onDetach: null,
+      capacityContribution: ["circulation"],
+    },
+    {
+      id: "rat_eyes",
+      name: "Rat Eyes",
+      type: "sensor",
+      species: "void_rat",
+      material: "organic",
+      maxHp: 1,
+      hitWeight: 1,
+      depth: "external",
+      woundEffect: "bleeding",
+      detachedDecayRate: 3,
+      onDetach: null,
+      capacityContribution: null,
     },
   ]
 }

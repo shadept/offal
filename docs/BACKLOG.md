@@ -146,9 +146,9 @@ This phase adds tile physics state and the fire/fluid systems. Sandbox fluid/gas
 *Goal: lose a limb in combat, capabilities change.*
 
 ### Body System ✅
-- [x] ✅ Body + CachedCapacity components on creatures, parts as ECS entities
+- [x] ✅ Body component on creatures (capacities merged in), parts as ECS entities
 - [x] ✅ PartIdentity, PartMaterial, AttachedTo components; Part Lookup Index
-- [x] ✅ Body capacity computation (mobility, manipulation, consciousness, circulation, structuralIntegrity)
+- [x] ✅ Body capacity computation (consciousness, mobility, circulation, manipulation)
 - [x] ✅ Locomotion/speed derived from functional parts and species baseline
 - [x] ✅ Per-part damage targeting (weighted random by hitWeight, depth filter by damage type)
 - [x] ✅ Severance: external parts at 0 HP drop to floor as entities, body recalcs

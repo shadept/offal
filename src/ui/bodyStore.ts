@@ -2,7 +2,7 @@
  * BodyStore — manages body panel UI state.
  * Plain class with listeners for framework-agnostic reactivity (same pattern as InventoryStore).
  */
-import { Health, Body, CachedCapacity, AttachedTo, PartMaterial } from '../ecs/components';
+import { Health, Body, AttachedTo, PartMaterial } from '../ecs/components';
 import {
   getPartsOf, getSpeciesId, getPartData, getSlotName, getSlotIndex, getMaterialId,
   getOccupiedSlots,
@@ -24,6 +24,9 @@ export interface SlotInfo {
   material: string;
   isFunctional: boolean;
   capacityContribution: CapacityType[] | null;
+  hitWeight: number;
+  coveragePct: number; // hitWeight / total hitWeight * 100
+  wasSevered: boolean; // blueprint slot is empty because part was severed
 }
 
 export interface BodyInfo {
@@ -37,7 +40,7 @@ export interface BodyInfo {
 }
 
 const CAPACITY_KEYS: CapacityType[] = [
-  'mobility', 'manipulation', 'consciousness', 'circulation', 'structuralIntegrity',
+  'mobility', 'manipulation', 'consciousness', 'circulation',
 ];
 
 export class BodyStore {
@@ -120,10 +123,18 @@ export class BodyStore {
       }
     }
 
+    // Compute coverage percentages from hitWeights
+    const totalHitWeight = slots.reduce((sum, s) => sum + s.hitWeight, 0);
+    if (totalHitWeight > 0) {
+      for (const s of slots) {
+        s.coveragePct = Math.round((s.hitWeight / totalHitWeight) * 100);
+      }
+    }
+
     // Capacities
     const capacities = {} as Record<CapacityType, number>;
     for (const key of CAPACITY_KEYS) {
-      capacities[key] = CachedCapacity[key][creatureEid];
+      capacities[key] = Body[key][creatureEid];
     }
 
     return {
@@ -147,6 +158,8 @@ export class BodyStore {
         occupied: false, partEid: -1,
         partName: '', hp: 0, maxHp: 0, material: '',
         isFunctional: false, capacityContribution: null,
+        hitWeight: 0, coveragePct: 0,
+        wasSevered: isBlueprint, // blueprint slot with no part = was severed
       };
     }
 
@@ -163,6 +176,9 @@ export class BodyStore {
       material: matId ?? '?',
       isFunctional: Health.hp[partEid] > 0,
       capacityContribution: partDef?.capacityContribution ?? null,
+      hitWeight: partDef?.hitWeight ?? 0,
+      coveragePct: 0, // computed after all slots are built
+      wasSevered: false,
     };
   }
 

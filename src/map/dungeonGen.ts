@@ -253,8 +253,9 @@ export function generateShip(
   const popRng = new SeededRNG(rng.seed + '_pop');
   const spawns = populateRooms(rooms, result.tileMap, popRng, result.playerSpawn);
 
-  // Infrastructure
-  placeInfrastructure(rooms, result.tileMap, popRng);
+  // Infrastructure — disabled: was placing wall tiles on floor, blocking doors.
+  // TODO: reimplement as proper entities (crates, consoles) instead of wall tiles.
+  // placeInfrastructure(rooms, result.tileMap, popRng);
 
   // Arrival events
   const arrivalEvents = generateArrivalEvents(rooms, result.tileMap, popRng);

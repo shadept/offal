@@ -107,7 +107,7 @@ Three internal organs live in the torso as non-external slots. They cannot be ac
 
 The heart is the **natural cap on body evolution**. Adding limbs past cardiac capacity is possible but penalised. Heart upgrades are rare and high-risk — a meaningful progression milestone, not a menu item.
 
-The three organs interact: full stomach improves heart efficiency; damaged lungs reduce consciousness; damaged heart starves peripheral limbs before killing.
+The three organs interact: full stomach improves heart efficiency; damaged lungs reduce circulation (less oxygen in the blood); damaged heart starves peripheral limbs before killing.
 
 ### 2.6 Status Effects
 
@@ -130,11 +130,12 @@ Computed each turn from active slots and status effects. Not stored.
 
 | Capacity | Source | At zero |
 |---|---|---|
-| Mobility | Leg slots | Cannot move |
-| Manipulation | Arm slots | Cannot interact |
-| Consciousness | Head slot + pain/blood loss | Incapacitated |
-| Circulation | Heart | Limb performance degrades |
-| Structural Integrity | Torso/core | Death |
+| Consciousness | Head | Unconscious (alive but inert) |
+| Mobility | Leg/rotor/segment slots | Cannot move |
+| Circulation | Heart/power core | Death |
+| Manipulation | Arm slots | Cannot interact with items or environment |
+
+Sensor parts (eyes, sensor pods) drive FOV range directly — not routed through a capacity. See [capacities.md](capacities.md) for detailed degradation curves and gameplay effects.
 
 ### 2.8 Limb Loss and Attachment
 

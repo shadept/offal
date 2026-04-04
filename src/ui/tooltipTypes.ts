@@ -4,6 +4,7 @@ export interface TooltipData {
   iconUrl?: string;
   conditions: string[];
   stats: string;
+  coverage?: string;
   capacities?: string;
   description?: string;
 }

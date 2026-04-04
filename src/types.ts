@@ -100,7 +100,7 @@ export type PartDepth = 'external' | 'internal';
 export type DamageType = 'blunt' | 'cut' | 'stab' | 'energy';
 
 /** Capacity types that parts can contribute to */
-export type CapacityType = 'mobility' | 'manipulation' | 'consciousness' | 'circulation' | 'structuralIntegrity';
+export type CapacityType = 'mobility' | 'manipulation' | 'consciousness' | 'circulation';
 
 /** Detach action — what happens when a part is severed */
 export type DetachAction =

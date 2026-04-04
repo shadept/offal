@@ -30,7 +30,7 @@
       woundEffect: "sparking",
       detachedDecayRate: 0,
       onDetach: null,
-      capacityContribution: ["structuralIntegrity"],
+      capacityContribution: null,
     },
     {
       id: "bot_arm",
@@ -72,7 +72,7 @@
       woundEffect: "sparking",
       detachedDecayRate: 0,
       onDetach: null,
-      capacityContribution: ["consciousness"],
+      capacityContribution: null,
     },
     {
       id: "bot_power_core",

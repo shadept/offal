@@ -930,11 +930,19 @@ function smoothHullGaps(tileMap: TileMap, passes: number): void {
         const idx = y * width + x;
         if (snapshot[idx] !== TileType.VOID) continue;
 
+        // Don't fill tiles adjacent to floor — avoids blocking doors and corridors
+        const n = snapshot[(y - 1) * width + x];
+        const s = snapshot[(y + 1) * width + x];
+        const w = snapshot[y * width + (x - 1)];
+        const e = snapshot[y * width + (x + 1)];
+        if (n === TileType.FLOOR || s === TileType.FLOOR ||
+            w === TileType.FLOOR || e === TileType.FLOOR) continue;
+
         let wallNeighbors = 0;
-        if (snapshot[(y - 1) * width + x] === TileType.WALL) wallNeighbors++;
-        if (snapshot[(y + 1) * width + x] === TileType.WALL) wallNeighbors++;
-        if (snapshot[y * width + (x - 1)] === TileType.WALL) wallNeighbors++;
-        if (snapshot[y * width + (x + 1)] === TileType.WALL) wallNeighbors++;
+        if (n === TileType.WALL) wallNeighbors++;
+        if (s === TileType.WALL) wallNeighbors++;
+        if (w === TileType.WALL) wallNeighbors++;
+        if (e === TileType.WALL) wallNeighbors++;
 
         if (wallNeighbors >= 2) {
           tileMap.set(x, y, TileType.WALL);

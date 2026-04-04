@@ -106,17 +106,13 @@ export const AttachedTo = soa({
 // Body — creature-level aggregate (present on creatures with body parts)
 // Body HP is tracked via Health.hp/maxHp on the creature entity directly.
 // Parts have their own Health.hp for severing thresholds.
+// Capacity fields are derived from functional attached parts (recalcCapacities).
 export const Body = soa({
   speciesIdx: new Uint16Array(MAX_ENTITIES),   // species index for lookups
-});
-
-// Cached capacity — derived from functional attached parts
-export const CachedCapacity = soa({
   mobility: new Uint8Array(MAX_ENTITIES),            // 0-100 percentage
   manipulation: new Uint8Array(MAX_ENTITIES),
   consciousness: new Uint8Array(MAX_ENTITIES),
   circulation: new Uint8Array(MAX_ENTITIES),
-  structuralIntegrity: new Uint8Array(MAX_ENTITIES),
 });
 
 // ── Item system ──────────────────────────────────────────────
@@ -142,4 +138,4 @@ export const Inventory = soa({
 // ── Tag components (no data, just markers) ─────────────────────
 export const PlayerTag = {};
 export const BlocksMovement = {};
-export const Dead = {}; // marks entities pending removal
+export const Dead = {}; // marks dead entities (corpses persist, non-body entities get removed)

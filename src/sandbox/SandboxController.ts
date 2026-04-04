@@ -151,7 +151,6 @@ export class SandboxController {
   findEntityAt(x: number, y: number): number | null {
     const entities = query(this.world, [Position]);
     for (const eid of entities) {
-      if (hasComponent(this.world, eid, Dead)) continue;
       if (Position.x[eid] === x && Position.y[eid] === y) return eid;
     }
     return null;
@@ -161,7 +160,6 @@ export class SandboxController {
     const result: number[] = [];
     const entities = query(this.world, [Position]);
     for (const eid of entities) {
-      if (hasComponent(this.world, eid, Dead)) continue;
       if (Position.x[eid] === x && Position.y[eid] === y) result.push(eid);
     }
     return result;

@@ -7,19 +7,21 @@
   color: "#aa6633",
   spawnTags: ["organic", "vermin"],
   faction: "creatures",
-  maxHp: 10,
+  maxHp: 11,
   attackDamage: [2, 4],
 
   parts: [
     { id: "head",    role: "head",   position: "top",      default: "rat_head" },
     { id: "torso",   role: "torso",  position: "front",    default: "rat_torso" },
+    { id: "eyes",    role: "sensor", position: "top",      default: "rat_eyes" },
     { id: "leg_fl",  role: "leg",    position: "left",     default: "rat_leg" },
     { id: "leg_fr",  role: "leg",    position: "right",    default: "rat_leg" },
     { id: "leg_bl",  role: "leg",    position: "left",     default: "rat_leg" },
     { id: "leg_br",  role: "leg",    position: "right",    default: "rat_leg" },
+    { id: "heart",   role: "organ",  position: "internal", default: "rat_heart" },
   ],
 
   compatibleWith: ["organic"],
-  requiredParts: ["head", "torso"],
+  requiredParts: ["head", "heart"],
   locomotionBaseline: "quadruped",
 }

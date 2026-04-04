@@ -8,6 +8,7 @@
   let x = $derived.by(() => { tick; return contextMenuStore.x; });
   let y = $derived.by(() => { tick; return contextMenuStore.y; });
   let actions = $derived.by(() => { tick; return contextMenuStore.actions; });
+  let focusIndex = $derived.by(() => { tick; return contextMenuStore.focusIndex; });
 
   function handleAction(callback: () => void) {
     callback();
@@ -17,18 +18,51 @@
   function handleBackdropClick() {
     contextMenuStore.close();
   }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (!contextMenuStore.open) return;
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'k':
+        e.preventDefault();
+        contextMenuStore.moveFocus(-1);
+        break;
+      case 'ArrowDown':
+      case 'j':
+        e.preventDefault();
+        contextMenuStore.moveFocus(1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        contextMenuStore.confirmFocus();
+        break;
+      case 'Escape':
+        e.preventDefault();
+        contextMenuStore.close();
+        break;
+    }
+  }
+
+  $effect(() => {
+    if (open) {
+      window.addEventListener('keydown', handleKeydown);
+      return () => window.removeEventListener('keydown', handleKeydown);
+    }
+  });
 </script>
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div class="ctx-backdrop" onclick={handleBackdropClick}></div>
   <div class="ctx-menu" style="left: {x}px; top: {y}px;">
-    {#each actions as action}
+    {#each actions as action, i}
       <button
         class="ctx-action"
         class:ctx-disabled={!action.enabled}
+        class:ctx-focused={i === focusIndex}
         disabled={!action.enabled}
         onclick={() => handleAction(action.callback)}
+        onmouseenter={() => { contextMenuStore.moveFocus(i - focusIndex); }}
       >
         {action.label}
       </button>
@@ -69,7 +103,8 @@
   .ctx-action:last-child {
     border-bottom: none;
   }
-  .ctx-action:hover:not(:disabled) {
+  .ctx-action:hover:not(:disabled),
+  .ctx-action.ctx-focused:not(:disabled) {
     background: rgba(78, 201, 176, 0.1);
     color: #ccdddd;
   }

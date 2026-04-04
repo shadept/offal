@@ -58,6 +58,7 @@
       iconUrl,
       conditions,
       stats: `HP ${slot.hp}/${slot.maxHp} \u00b7 ${slot.material} \u00b7 ${slot.role}`,
+      coverage: `Coverage: ${slot.hitWeight} weight (${slot.coveragePct}%)`,
       capacities: slot.capacityContribution?.join(', '),
     };
     tooltipVisible = true;
@@ -156,7 +157,8 @@
           <div
             class="bp-slot"
             class:bp-slot-occupied={slot.occupied}
-            class:bp-slot-empty={!slot.occupied}
+            class:bp-slot-empty={!slot.occupied && !slot.wasSevered}
+            class:bp-slot-severed={slot.wasSevered}
             class:bp-slot-deactivated={slot.occupied && !slot.isFunctional}
             class:bp-slot-highlight={highlightedRole === slot.role && !slot.occupied}
             style="left: {pos.x - 22}px; top: {pos.y - 22}px;"
@@ -184,6 +186,16 @@
                   style="width: {(slot.hp / slot.maxHp) * 100}%; background: {hpColor(slot.hp, slot.maxHp)};"
                 ></div>
               </div>
+            {:else if slot.wasSevered}
+              <!-- Severed stump -->
+              {#if partIconDataUrls.get(slot.role)}
+                <img
+                  class="bp-severed-icon"
+                  src={partIconDataUrls.get(slot.role)}
+                  alt={slot.role}
+                />
+              {/if}
+              <span class="bp-severed-label">LOST</span>
             {:else}
               <!-- Blueprint ghost -->
               {#if partIconDataUrls.get(slot.role)}
@@ -295,6 +307,10 @@
     border: 1px dashed #223;
     background: transparent;
   }
+  .bp-slot-severed {
+    border: 1px solid #733;
+    background: rgba(80, 20, 20, 0.3);
+  }
   .bp-slot-deactivated {
     opacity: 0.4;
     border-color: #533;
@@ -322,6 +338,20 @@
     height: 32px;
     image-rendering: pixelated;
     opacity: 0.2;
+    pointer-events: none;
+  }
+  .bp-severed-icon {
+    width: 32px;
+    height: 32px;
+    image-rendering: pixelated;
+    opacity: 0.15;
+    pointer-events: none;
+    filter: saturate(0) brightness(0.5);
+  }
+  .bp-severed-label {
+    font-size: 0.45rem;
+    color: #a44;
+    letter-spacing: 1px;
     pointer-events: none;
   }
 

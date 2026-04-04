@@ -178,7 +178,7 @@ export function processFluidSystem(
   // Standing on fluid resets the duration; walking away lets it degrade naturally.
   const livingEntities = query(world, [Position, Health]);
   for (const eid of livingEntities) {
-    if (hasComponent(world, eid, Dead)) continue;
+    if (hasComponent(world, eid, Dead) && !hasComponent(world, eid, Body)) continue;
     const ex = Position.x[eid];
     const ey = Position.y[eid];
     const state = physics.get(ex, ey);

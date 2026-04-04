@@ -150,7 +150,7 @@ export function processGasSystem(
   if (gasRules) {
     const livingEntities = query(world, [Position, Health]);
     for (const eid of livingEntities) {
-      if (hasComponent(world, eid, Dead)) continue;
+      if (hasComponent(world, eid, Dead) && !hasComponent(world, eid, Body)) continue;
       const ex = Position.x[eid];
       const ey = Position.y[eid];
       const state = physics.get(ex, ey);
@@ -167,6 +167,12 @@ export function processGasSystem(
         const species = speciesId ? registry.species.get(speciesId) : null;
         if (!species?.spawnTags?.includes('organic')) continue;
 
+        // Circulation modifier: higher circulation = more vulnerable to poison
+        const circulationRatio = hasComponent(world, eid, Body)
+          ? Body.circulation[eid] / 100 : 1;
+        const toxicDamage = Math.max(0, Math.round(gasRules.toxicDamagePerTurn * circulationRatio));
+        if (toxicDamage <= 0) continue; // no circulation = immune to poison
+
         // For Body entities, target organic-material parts specifically
         if (hasComponent(world, eid, Body)) {
           const organicParts: number[] = [];
@@ -178,11 +184,11 @@ export function processGasSystem(
           }
           if (organicParts.length === 0) continue; // no organic parts left
           const targetPart = organicParts[Math.floor(Math.random() * organicParts.length)];
-          applyDamage(eid, gasRules.toxicDamagePerTurn, {
+          applyDamage(eid, toxicDamage, {
             source: 'toxic_gas', damageType: 'energy', targetPartEid: targetPart,
           }, world, eventQueue);
         } else {
-          applyDamage(eid, gasRules.toxicDamagePerTurn, {
+          applyDamage(eid, toxicDamage, {
             source: 'toxic_gas', damageType: 'energy',
           }, world, eventQueue);
         }

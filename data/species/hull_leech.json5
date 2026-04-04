@@ -19,6 +19,6 @@
   ],
 
   compatibleWith: ["organic"],
-  requiredParts: ["heart", "mouth"],
+  requiredParts: ["heart"],
   locomotionBaseline: "serpentine",
 }

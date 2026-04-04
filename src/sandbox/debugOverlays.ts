@@ -9,7 +9,7 @@
 import { hasComponent } from 'bitecs';
 import {
   Position, FOV, AI, AIState, Health, Turn, Faction,
-  CombatStats, Renderable, PlayerTag, Body, CachedCapacity, PartIdentity,
+  CombatStats, Renderable, PlayerTag, Body, PartIdentity,
 } from '../ecs/components';
 import { getFactionId } from '../ecs/factions';
 import { getPartsOf, getPartData, getSlotName, getSpeciesId } from '../ecs/body';
@@ -281,13 +281,12 @@ const BUILTIN_INSPECTORS: ComponentInspector[] = [
   },
   {
     name: 'Capacity',
-    hasComponent: (w, eid) => hasComponent(w, eid, CachedCapacity),
+    hasComponent: (w, eid) => hasComponent(w, eid, Body),
     getFields: (_w, eid) => [
-      ['Mobility', `${CachedCapacity.mobility[eid]}%`],
-      ['Manipulation', `${CachedCapacity.manipulation[eid]}%`],
-      ['Consciousness', `${CachedCapacity.consciousness[eid]}%`],
-      ['Circulation', `${CachedCapacity.circulation[eid]}%`],
-      ['Structure', `${CachedCapacity.structuralIntegrity[eid]}%`],
+      ['Mobility', `${Body.mobility[eid]}%`],
+      ['Manipulation', `${Body.manipulation[eid]}%`],
+      ['Consciousness', `${Body.consciousness[eid]}%`],
+      ['Circulation', `${Body.circulation[eid]}%`],
     ],
     hasOverlay: false,
   },

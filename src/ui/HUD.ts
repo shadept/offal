@@ -1,10 +1,11 @@
 /**
- * HUD — mounts a Svelte overlay for position, turn count, phase, FPS, controls.
+ * HUD — mounts a Svelte overlay for position, turn count, phase, FPS, player HP, conditions.
  * Lives in the DOM layer above the Phaser canvas, unaffected by camera zoom/scroll.
  */
 import { mount, unmount } from 'svelte';
 import HudOverlay from './HudOverlay.svelte';
-import { Position } from '../ecs/components';
+import { hasComponent } from 'bitecs';
+import { Position, Health, Body, Dead } from '../ecs/components';
 import { TurnPhase } from '../types';
 
 const PHASE_LABELS: Record<number, string> = {
@@ -19,6 +20,7 @@ const PHASE_LABELS: Record<number, string> = {
 export class HUD {
   private handle: Record<string, unknown>;
   private el: HTMLDivElement;
+  private world: object | null = null;
 
   constructor() {
     this.el = document.createElement('div');
@@ -31,15 +33,16 @@ export class HUD {
         turnCount: 0,
         phase: '',
         fps: 0,
+        hp: 0,
+        maxHp: 1,
+        conditions: [],
       },
     });
   }
 
+  bindWorld(world: object): void { this.world = world; }
+
   update(playerEid: number, turnCount: number, phase: TurnPhase, sandboxActive = false, fps = 0): void {
-    // Direct DOM update — Svelte 5 mount returns the component instance
-    // but we can't set props on it easily from plain TS.
-    // Instead, update the DOM container's dataset and let a MutationObserver
-    // or simpler: just manipulate the DOM elements directly.
     const root = this.el.querySelector('.hud') as HTMLElement | null;
     if (!root) return;
 
@@ -51,6 +54,47 @@ export class HUD {
     if (topCenter) topCenter.textContent = sandboxActive ? PHASE_LABELS[-1] : (PHASE_LABELS[phase] ?? '');
     if (topRight) {
       topRight.innerHTML = `<div>Turn ${turnCount}</div><div class="hud-dim">${Math.round(fps)} fps</div>`;
+    }
+
+    // Player HP bar
+    const hp = Health.hp[playerEid];
+    const maxHp = Health.maxHp[playerEid];
+    const hpRatio = maxHp > 0 ? hp / maxHp : 0;
+    const hpColor = hpRatio > 0.6 ? '#4ec9b0' : hpRatio > 0.3 ? '#c9a84e' : '#e94560';
+
+    const hpFill = root.querySelector('.hud-hp-fill') as HTMLElement | null;
+    const hpText = root.querySelector('.hud-hp-text') as HTMLElement | null;
+    if (hpFill) {
+      hpFill.style.width = `${hpRatio * 100}%`;
+      hpFill.style.background = hpColor;
+    }
+    if (hpText) hpText.textContent = `${hp}/${maxHp}`;
+
+    // Conditions
+    const conditions: string[] = [];
+    if (this.world && hasComponent(this.world, playerEid, Body)) {
+      const consciousness = Body.consciousness[playerEid];
+      const mobility = Body.mobility[playerEid];
+      const manipulation = Body.manipulation[playerEid];
+      const circulation = Body.circulation[playerEid];
+
+      if (consciousness < 10) conditions.push('UNCONSCIOUS');
+      else if (consciousness < 50) conditions.push('DAZED');
+      if (mobility === 0) conditions.push('IMMOBILE');
+      else if (mobility < 50) conditions.push('HOBBLED');
+      if (manipulation === 0) conditions.push('NO HANDS');
+      if (circulation === 0) conditions.push('NO PULSE');
+      else if (circulation < 50) conditions.push('WEAK PULSE');
+    }
+
+    const condEl = root.querySelector('.hud-conditions') as HTMLElement | null;
+    if (condEl) {
+      if (conditions.length > 0) {
+        condEl.innerHTML = conditions.map(c => `<span class="hud-condition">${c}</span>`).join('');
+        condEl.style.display = '';
+      } else {
+        condEl.innerHTML = '';
+      }
     }
   }
 

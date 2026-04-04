@@ -8,8 +8,8 @@
 import { addEntity, addComponent, removeComponent, hasComponent } from 'bitecs';
 import { getRegistry } from '../data/loader';
 import {
-  Health, Position, Renderable, Dead, HeldBy,
-  PartIdentity, PartMaterial, AttachedTo, Body, CachedCapacity, Turn,
+  Health, Position, Renderable, Dead, HeldBy, FOV,
+  PartIdentity, PartMaterial, AttachedTo, Body, Turn,
 } from './components';
 import { removeItemFromOwner } from './inventory';
 import type { DataRegistry, PartData, SpeciesData, CapacityType, PartRole } from '../types';
@@ -29,6 +29,51 @@ export const PartType = {
   ROTOR: 7,
   TORSO: 8,
 } as const;
+
+// ═══════════════════════════════════════════════════════════
+// DEGRADATION CURVES — per part type, controls how HP% maps to capacity contribution
+// ═══════════════════════════════════════════════════════════
+
+interface DegradationCurve {
+  mode: 'threshold' | 'linear';
+  threshold: number; // HP ratio below which degradation kicks in
+}
+
+const DEGRADATION_BY_TYPE: Record<number, DegradationCurve> = {
+  [PartType.HEAD]:    { mode: 'linear',    threshold: 0.5 },
+  [PartType.TORSO]:   { mode: 'threshold', threshold: 0.2 },
+  [PartType.ARM]:     { mode: 'threshold', threshold: 0.3 },
+  [PartType.LEG]:     { mode: 'threshold', threshold: 0.3 },
+  [PartType.ORGAN]:   { mode: 'threshold', threshold: 0.0 },
+  [PartType.SENSOR]:  { mode: 'linear',    threshold: 0.5 },
+  [PartType.MOUTH]:   { mode: 'threshold', threshold: 0.2 },
+  [PartType.SEGMENT]: { mode: 'threshold', threshold: 0.2 },
+  [PartType.ROTOR]:   { mode: 'linear',    threshold: 0.3 },
+};
+
+/**
+ * Compute a part's capacity contribution (0.0 to 1.0) based on its HP and degradation curve.
+ * - threshold mode: 1.0 above threshold, 0.5 below (impaired), 0.0 at zero HP
+ * - linear mode: 1.0 above threshold, scales linearly to 0.0 below
+ */
+export function getPartContribution(partEid: number): number {
+  const hp = Health.hp[partEid];
+  if (hp <= 0) return 0;
+  const maxHp = Health.maxHp[partEid];
+  if (maxHp <= 0) return 0;
+  const ratio = hp / maxHp;
+  const typeId = PartIdentity.typeId[partEid];
+  const curve = DEGRADATION_BY_TYPE[typeId];
+  if (!curve) return 1;
+
+  if (curve.mode === 'threshold') {
+    return ratio >= curve.threshold ? 1.0 : 0.5;
+  } else {
+    // linear: 1.0 above threshold, scales to 0.0 at zero
+    if (ratio >= curve.threshold) return 1.0;
+    return curve.threshold > 0 ? ratio / curve.threshold : 1.0;
+  }
+}
 
 const ROLE_TO_PART_TYPE: Record<string, number> = {
   arm: PartType.ARM,
@@ -174,9 +219,9 @@ export function clearPartIndex(parentEid: number): void {
 // CAPACITY DERIVATION
 // ═══════════════════════════════════════════════════════════
 
-/** Capacity keys matching CachedCapacity component fields. */
+/** Capacity keys matching Body component fields. */
 const CAPACITY_KEYS: CapacityType[] = [
-  'mobility', 'manipulation', 'consciousness', 'circulation', 'structuralIntegrity',
+  'mobility', 'manipulation', 'consciousness', 'circulation',
 ];
 
 /**
@@ -193,8 +238,9 @@ export function sumPartHp(creatureEid: number): number {
 }
 
 /**
- * Recalculate CachedCapacity from functional attached parts.
- * A part is functional if Health.hp[partEid] > 0.
+ * Recalculate Body capacities from attached parts using degradation curves.
+ * Each part's contribution is weighted by its HP state (see getPartContribution).
+ * Consciousness is further modified by overall body HP (stamina modifier).
  */
 export function recalcCapacities(creatureEid: number): void {
   const registry = getRegistry();
@@ -202,12 +248,12 @@ export function recalcCapacities(creatureEid: number): void {
   const species = speciesId ? registry.species.get(speciesId) : undefined;
   if (!species?.parts) return;
 
-  // Count total and functional parts per capacity
-  const total: Record<string, number> = {};
-  const functional: Record<string, number> = {};
+  // Sum weighted contributions per capacity
+  const totalParts: Record<string, number> = {};
+  const weightedSum: Record<string, number> = {};
   for (const key of CAPACITY_KEYS) {
-    total[key] = 0;
-    functional[key] = 0;
+    totalParts[key] = 0;
+    weightedSum[key] = 0;
   }
 
   const parts = getPartsOf(creatureEid);
@@ -216,88 +262,68 @@ export function recalcCapacities(creatureEid: number): void {
     const partDef = defId ? registry.parts.get(defId) : undefined;
     if (!partDef?.capacityContribution) continue;
 
+    const contribution = getPartContribution(pEid);
     for (const cap of partDef.capacityContribution) {
-      total[cap] = (total[cap] ?? 0) + 1;
-      if (Health.hp[pEid] > 0) {
-        functional[cap] = (functional[cap] ?? 0) + 1;
-      }
+      totalParts[cap] = (totalParts[cap] ?? 0) + 1;
+      weightedSum[cap] = (weightedSum[cap] ?? 0) + contribution;
     }
   }
 
-  // Compute percentages
+  // Compute percentages — 0 if no parts contribute
   for (const key of CAPACITY_KEYS) {
-    const t = total[key] ?? 0;
-    const f = functional[key] ?? 0;
-    const pct = t > 0 ? Math.round((f / t) * 100) : 100;
-    CachedCapacity[key][creatureEid] = pct;
+    const t = totalParts[key] ?? 0;
+    const w = weightedSum[key] ?? 0;
+    const pct = t > 0 ? Math.round((w / t) * 100) : 0;
+    Body[key][creatureEid] = pct;
+  }
+
+  // Consciousness stamina modifier: body HP affects effective consciousness
+  const rawConsciousness = Body.consciousness[creatureEid];
+  if (rawConsciousness > 0) {
+    const bodyHpRatio = Health.hp[creatureEid] / Math.max(1, Health.maxHp[creatureEid]);
+    const staminaModifier = 0.5 + 0.5 * bodyHpRatio;
+    Body.consciousness[creatureEid] = Math.round(rawConsciousness * staminaModifier);
   }
 }
 
 /**
- * Update Turn.speed based on mobility capacity and locomotion baseline.
+ * Recalculate FOV.range from sensor part state using degradation curves.
+ * Must be called after recalcCapacities (or any part damage/attach/detach).
  */
-export function updateSpeedFromCapacity(creatureEid: number): void {
+export function recalcFOV(creatureEid: number, world: object): void {
+  if (!hasComponent(world, creatureEid, FOV)) return;
   const registry = getRegistry();
   const speciesId = getSpeciesId(Body.speciesIdx[creatureEid]);
   const species = speciesId ? registry.species.get(speciesId) : undefined;
   if (!species) return;
+  const baseFov = species.fovRange ?? 8;
 
-  const baseSpeed = species.speed;
-  const mobility = CachedCapacity.mobility[creatureEid];
-  const baseline = species.locomotionBaseline ?? 'biped';
-
-  let speedMult: number;
-  if (baseline === 'biped') {
-    // Count legs via slot roles
-    const parts = getPartsOf(creatureEid);
-    let totalLegs = 0;
-    let functionalLegs = 0;
-    for (const pEid of parts) {
-      if (PartIdentity.typeId[pEid] === PartType.LEG) {
-        totalLegs++;
-        if (Health.hp[pEid] > 0) functionalLegs++;
-      }
+  const parts = getPartsOf(creatureEid);
+  let totalSensors = 0;
+  let sensorSum = 0;
+  for (const pEid of parts) {
+    if (PartIdentity.typeId[pEid] === PartType.SENSOR) {
+      totalSensors++;
+      sensorSum += getPartContribution(pEid);
     }
-    if (totalLegs === 0) {
-      speedMult = 1.0; // species has no legs by design
-    } else if (functionalLegs === 0) {
-      speedMult = 0.3; // crawling
-    } else if (functionalLegs < totalLegs) {
-      speedMult = 0.6; // hobbling
-    } else {
-      speedMult = 1.0;
-    }
-  } else if (baseline === 'quadruped') {
-    const parts = getPartsOf(creatureEid);
-    let totalLegs = 0;
-    let functionalLegs = 0;
-    for (const pEid of parts) {
-      if (PartIdentity.typeId[pEid] === PartType.LEG) {
-        totalLegs++;
-        if (Health.hp[pEid] > 0) functionalLegs++;
-      }
-    }
-    if (totalLegs === 0) {
-      speedMult = 1.0;
-    } else {
-      const ratio = functionalLegs / totalLegs;
-      if (ratio >= 1) speedMult = 1.0;
-      else if (ratio >= 0.75) speedMult = 0.8;
-      else if (ratio >= 0.5) speedMult = 0.5;
-      else if (ratio > 0) speedMult = 0.25;
-      else speedMult = 0;
-    }
-  } else if (baseline === 'hover') {
-    // Proportional to rotors
-    speedMult = mobility / 100;
-  } else if (baseline === 'serpentine') {
-    // Proportional to segments
-    speedMult = mobility / 100;
-  } else {
-    speedMult = mobility / 100;
   }
 
-  Turn.speed[creatureEid] = baseSpeed * speedMult;
+  const sensorRatio = totalSensors > 0 ? sensorSum / totalSensors : 0;
+  FOV.range[creatureEid] = Math.max(1, Math.round(baseFov * sensorRatio));
+}
+
+/**
+ * Get the movement cost multiplier based on mobility capacity.
+ * Mobility only affects movement cost, not action speed.
+ */
+export function getMovementCostMultiplier(creatureEid: number): number {
+  const mobility = Body.mobility[creatureEid];
+  if (mobility <= 0) return Infinity;
+  if (mobility >= 100) return 1.0;
+  if (mobility >= 75) return 1.2;
+  if (mobility >= 50) return 1.5;
+  if (mobility >= 25) return 2.0;
+  return 3.0;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -306,7 +332,7 @@ export function updateSpeedFromCapacity(creatureEid: number): void {
 
 /**
  * Create part entities for a creature based on its species body plan.
- * Adds Body and CachedCapacity to the creature, populates Part Lookup Index.
+ * Adds Body to the creature, populates Part Lookup Index.
  */
 export function spawnBodyForCreature(
   world: object,
@@ -316,9 +342,8 @@ export function spawnBodyForCreature(
 ): void {
   if (!species.parts || species.parts.length === 0) return;
 
-  // Add body components to creature
+  // Add body component to creature
   addComponent(world, creatureEid, Body);
-  addComponent(world, creatureEid, CachedCapacity);
   Body.speciesIdx[creatureEid] = getSpeciesIndex(species.id);
 
   // Create part entities
@@ -357,6 +382,7 @@ export function spawnBodyForCreature(
   Health.hp[creatureEid] = bodyMaxHp;
 
   recalcCapacities(creatureEid);
+  recalcFOV(creatureEid, world);
 }
 
 /**
@@ -382,9 +408,9 @@ export function detachPart(
   Renderable.spriteIndex[partEid] = 5; // placeholder: part-on-floor sprite
   Renderable.layer[partEid] = 1; // objects layer
 
-  // Recalculate capacities and speed (body HP already reduced by damage)
+  // Recalculate capacities and FOV (body HP already reduced by damage)
   recalcCapacities(bodyEid);
-  updateSpeedFromCapacity(bodyEid);
+  recalcFOV(bodyEid, world);
 }
 
 /**
@@ -558,7 +584,7 @@ export function attachPart(
 
   // Recalculate body aggregates
   recalcCapacities(bodyEid);
-  updateSpeedFromCapacity(bodyEid);
+  recalcFOV(bodyEid, world);
 
   return true;
 }
