@@ -41,6 +41,8 @@ export class Lightmap {
   readonly b: Float32Array;
   /** Per-tile flicker type index (0=none). Highest-intensity source wins. */
   readonly flicker: Uint8Array;
+  /** Per-tile flicker seed (0–255). All tiles from the same source share the same seed. */
+  readonly flickerSeed: Uint8Array;
 
   private _sources: LightSource[] = [];
   private _nextId = 1;
@@ -53,6 +55,7 @@ export class Lightmap {
     this.g = new Float32Array(size);
     this.b = new Float32Array(size);
     this.flicker = new Uint8Array(size);
+    this.flickerSeed = new Uint8Array(size);
   }
 
   get sources(): readonly LightSource[] { return this._sources; }
@@ -62,6 +65,7 @@ export class Lightmap {
     this.g.fill(0);
     this.b.fill(0);
     this.flicker.fill(0);
+    this.flickerSeed.fill(0);
   }
 
   addSource(src: Omit<LightSource, 'id'>): LightSource {
@@ -86,12 +90,15 @@ export class Lightmap {
   recompute(blocksLight: (x: number, y: number) => boolean): void {
     this.clear();
     for (const src of this._sources) {
+      // Derive a stable per-source seed (0–255) from its ID
+      const seed = src.flicker ? ((src.id * 127 + 53) & 0xFF) : 0;
       propagateLight(
         src.x, src.y, src.radius,
         src.r, src.g, src.b,
         blocksLight,
         this,
         src.flicker ? FLICKER_INDEX[src.flicker] : undefined,
+        seed,
       );
     }
   }
@@ -154,9 +161,11 @@ export class Lightmap {
       vd[pi] = v === 0 ? 0 : v === 1 ? 128 : 255;       // R: visibility
       if (tiles) {
         const t = tiles[i];
-        vd[pi + 1] = t === 0 ? 0 : t === 1 ? 128 : 255; // G: tile type
+        // G: tile type — 0=VOID, 85=HULL, 128=FLOOR, 255=WALL
+        vd[pi + 1] = t === 0 ? 0 : t === 1 ? 128 : t === 3 ? 85 : 255;
       }
-      vd[pi + 2] = this.flicker[i];                       // B: flicker type
+      // B: pack flicker type (bits 0–1) + seed (bits 2–7)
+      vd[pi + 2] = this.flicker[i] | (this.flickerSeed[i] & 0xFC);
       vd[pi + 3] = 255;
     }
     visCtx.putImageData(visData, 0, 0);

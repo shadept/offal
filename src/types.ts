@@ -9,6 +9,7 @@ export enum TileType {
   VOID = 0,
   FLOOR = 1,
   WALL = 2,
+  HULL = 3,
 }
 
 /** Turn state machine states */

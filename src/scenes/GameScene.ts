@@ -114,7 +114,7 @@ export class GameScene extends Scene {
   private lightmapCtx!: CanvasRenderingContext2D;
   private visCanvas!: HTMLCanvasElement;
   private visCtx!: CanvasRenderingContext2D;
-  private playerLightSource!: LightSource;
+  // private playerLightSource!: LightSource; // removed for now
   private fireLightSources = new Map<number, LightSource>(); // keyed by tile index
   private roomLightSources: LightSource[] = [];
   /** Gas particle emitters indexed by tile flat index */
@@ -311,14 +311,6 @@ export class GameScene extends Scene {
     // Disable UNPACK_FLIP_Y so canvas data maps 1:1 to tile UV (row 0 → v=0)
     (this.textures.get('_lightmap') as any)._source.flipY = false;
     (this.textures.get('_visibility') as any)._source.flipY = false;
-
-    // Player light source
-    this.playerLightSource = this.lightmap.addSource({
-      x: Position.x[this.playerEid],
-      y: Position.y[this.playerEid],
-      r: 1.0, g: 0.95, b: 0.85, // warm white
-      radius: FOV.range[this.playerEid] || 8,
-    });
 
     // Room ceiling lights
     this.addRoomLights();
@@ -884,7 +876,7 @@ export class GameScene extends Scene {
   /** Get the texture key for a tile, using architecture-specific textures for floor/wall. */
   private getTileTexture(tileType: number): string {
     if (tileType === TileType.FLOOR) return archFloorTex(this.currentArchitectureId);
-    if (tileType === TileType.WALL) return archWallTex(this.currentArchitectureId);
+    if (tileType === TileType.WALL || tileType === TileType.HULL) return archWallTex(this.currentArchitectureId);
     return TEX.VOID;
   }
 
@@ -1955,12 +1947,6 @@ export class GameScene extends Scene {
     this.visCanvas.width = this.tileMap.width;
     this.visCanvas.height = this.tileMap.height;
     this.fireLightSources.clear();
-    this.playerLightSource = this.lightmap.addSource({
-      x: Position.x[this.playerEid],
-      y: Position.y[this.playerEid],
-      r: 1.0, g: 0.95, b: 0.85,
-      radius: FOV.range[this.playerEid] || 8,
-    });
     this.addRoomLights();
     if (this.lightmapFilter) {
       this.lightmapFilter.mapSize = [this.tileMap.width, this.tileMap.height];
@@ -2268,15 +2254,17 @@ export class GameScene extends Scene {
     }
 
     // ── Recompute lightmap ──
-    this.lightmap.updateSource(this.playerLightSource.id,
-      Position.x[this.playerEid], Position.y[this.playerEid]);
     this.lightmap.recompute((x, y) => this.tileMap.blocksLight(x, y));
 
     // Starlight — ambient light on hull and space from a nearby star.
-    // Space is well-lit: even distant planets are clearly visible from starlight.
+    // VOID (space) and HULL (exterior structure) are lit by starlight.
+    // Interior WALL tiles derive light from neighbors via quadrant blending.
     this.lightmap.addAmbient(
       0.65, 0.60, 0.70,
-      (x, y) => this.tileMap.tiles[this.tileMap.idx(x, y)] !== TileType.FLOOR,
+      (x, y) => {
+        const t = this.tileMap.tiles[this.tileMap.idx(x, y)];
+        return t === TileType.VOID || t === TileType.HULL;
+      },
     );
 
     // Upload to GPU textures for shader
@@ -2295,8 +2283,8 @@ export class GameScene extends Scene {
   // ROOM LIGHTING
   // ════════════════════════════════════════════════════════════
 
-  /** Mark space (VOID) and pure hull walls as SEEN.
-   *  A wall touching any FLOOR stays UNSEEN (it's a room boundary). */
+  /** Mark space (VOID) and hull as SEEN — exterior is always visible.
+   *  Interior walls (WALL) stay UNSEEN until the player reveals them. */
   private revealExterior(): void {
     const { width, height, tiles, visibility } = this.tileMap;
     for (let y = 0; y < height; y++) {
@@ -2304,17 +2292,9 @@ export class GameScene extends Scene {
         const i = y * width + x;
         if (visibility[i] !== Visibility.UNSEEN) continue;
 
-        if (tiles[i] === TileType.VOID) {
+        const t = tiles[i];
+        if (t === TileType.VOID || t === TileType.HULL) {
           visibility[i] = Visibility.SEEN;
-        } else if (tiles[i] === TileType.WALL) {
-          // Only reveal walls with NO adjacent floor (pure exterior hull)
-          const touchesFloor = (
-            (x > 0 && tiles[i - 1] === TileType.FLOOR) ||
-            (x < width - 1 && tiles[i + 1] === TileType.FLOOR) ||
-            (y > 0 && tiles[i - width] === TileType.FLOOR) ||
-            (y < height - 1 && tiles[i + width] === TileType.FLOOR)
-          );
-          if (!touchesFloor) visibility[i] = Visibility.SEEN;
         }
       }
     }
@@ -2343,11 +2323,14 @@ export class GameScene extends Scene {
     for (const room of this.currentRooms) {
       // Radius covers the room diagonal + 1 for bleed into doorways
       const radius = Math.ceil(Math.sqrt(room.rect.w * room.rect.w + room.rect.h * room.rect.h) / 2) + 1;
+      // ~30% of ceiling lights are malfunctioning on derelict ships
+      const flicker = Math.random() < 0.3 ? 'broken' as const : undefined;
       const src = this.lightmap.addSource({
         x: room.center.x,
         y: room.center.y,
         r: lr, g: lg, b: lb,
         radius,
+        flicker,
       });
       this.roomLightSources.push(src);
     }
@@ -2398,11 +2381,12 @@ export class GameScene extends Scene {
       for (let x = 1; x < width - 1; x++) {
         if (this.tileMap.get(x, y) !== TileType.FLOOR) continue;
         // Check if adjacent to a wall
+        const isWallOrHull = (t: number) => t === TileType.WALL || t === TileType.HULL;
         const adjWall =
-          this.tileMap.get(x - 1, y) === TileType.WALL ||
-          this.tileMap.get(x + 1, y) === TileType.WALL ||
-          this.tileMap.get(x, y - 1) === TileType.WALL ||
-          this.tileMap.get(x, y + 1) === TileType.WALL;
+          isWallOrHull(this.tileMap.get(x - 1, y)) ||
+          isWallOrHull(this.tileMap.get(x + 1, y)) ||
+          isWallOrHull(this.tileMap.get(x, y - 1)) ||
+          isWallOrHull(this.tileMap.get(x, y + 1));
         if (adjWall) spots.push({ x, y });
       }
     }

@@ -910,7 +910,7 @@ function fillPerRoomHulls(
         const dy = y - cy;
 
         if (isInsideHullShape(shape, dx, dy, hw, hh)) {
-          tileMap.set(x, y, TileType.WALL);
+          tileMap.set(x, y, TileType.HULL);
         }
       }
     }
@@ -938,14 +938,14 @@ function smoothHullGaps(tileMap: TileMap, passes: number): void {
         if (n === TileType.FLOOR || s === TileType.FLOOR ||
             w === TileType.FLOOR || e === TileType.FLOOR) continue;
 
-        let wallNeighbors = 0;
-        if (n === TileType.WALL) wallNeighbors++;
-        if (s === TileType.WALL) wallNeighbors++;
-        if (w === TileType.WALL) wallNeighbors++;
-        if (e === TileType.WALL) wallNeighbors++;
+        let solidNeighbors = 0;
+        if (n === TileType.WALL || n === TileType.HULL) solidNeighbors++;
+        if (s === TileType.WALL || s === TileType.HULL) solidNeighbors++;
+        if (w === TileType.WALL || w === TileType.HULL) solidNeighbors++;
+        if (e === TileType.WALL || e === TileType.HULL) solidNeighbors++;
 
-        if (wallNeighbors >= 2) {
-          tileMap.set(x, y, TileType.WALL);
+        if (solidNeighbors >= 2) {
+          tileMap.set(x, y, TileType.HULL);
         }
       }
     }
