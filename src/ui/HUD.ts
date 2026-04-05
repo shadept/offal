@@ -1,105 +1,174 @@
 /**
- * HUD — mounts a Svelte overlay for position, turn count, phase, FPS, player HP, conditions.
- * Lives in the DOM layer above the Phaser canvas, unaffected by camera zoom/scroll.
+ * HUD — coordinates all HUD overlay components.
+ * Mounts Svelte components and updates hudStore with game state.
  */
 import { mount, unmount } from 'svelte';
 import HudOverlay from './HudOverlay.svelte';
+import PlayerStatusPanel from './PlayerStatusPanel.svelte';
+import GameLogPanel from './GameLogPanel.svelte';
+import FloorItemsPanel from './FloorItemsPanel.svelte';
+import KeysOverlay from './KeysOverlay.svelte';
+import { hudStore } from './hudStore.svelte';
+import type { FloorThing } from './floorTypes';
 import { hasComponent } from 'bitecs';
-import { Position, Health, Body, Dead } from '../ecs/components';
-import { TurnPhase } from '../types';
-
-const PHASE_LABELS: Record<number, string> = {
-  [TurnPhase.PLAYER_INPUT]: 'YOUR TURN',
-  [TurnPhase.PROCESSING]: 'PROCESSING',
-  [TurnPhase.ANIMATION]: 'ANIMATING',
-  [TurnPhase.ENEMY_TURN]: 'ENEMY TURN',
-  [TurnPhase.ENEMY_ANIMATION]: 'ANIMATING',
-  [-1]: 'SANDBOX',
-};
+import { Health, Body, Dead, Position } from '../ecs/components';
+import { findItemsAtPosition, getItemData } from '../ecs/inventory';
+import { getPartData } from '../ecs/body';
+import type { RoomInfo } from '../map/dungeonGen';
+import { injectVisorWarpFilters } from './visorWarp';
 
 export class HUD {
-  private handle: Record<string, unknown>;
   private el: HTMLDivElement;
   private world: object | null = null;
 
+  // Component mount handles
+  private handles: ReturnType<typeof mount>[] = [];
+
+  // Room lookup cache
+  private rooms: RoomInfo[] = [];
+  private lastPlayerTileKey = '';
+
+  // Damage tracking
+  private lastHp = -1;
+
+  // Entity species lookup (for corpse names)
+  private entitySpeciesLookup: ((eid: number) => string | undefined) | null = null;
+
   constructor() {
+    injectVisorWarpFilters();
+
     this.el = document.createElement('div');
+    this.el.id = 'hud-root';
     document.body.appendChild(this.el);
-    this.handle = mount(HudOverlay, {
-      target: this.el,
-      props: {
-        playerX: 0,
-        playerY: 0,
-        turnCount: 0,
-        phase: '',
-        fps: 0,
-        hp: 0,
-        maxHp: 1,
-        conditions: [],
-      },
-    });
+
+    this.handles.push(
+      mount(HudOverlay, { target: this.el }) as ReturnType<typeof mount>,
+      mount(PlayerStatusPanel, { target: this.el }) as ReturnType<typeof mount>,
+      mount(GameLogPanel, { target: this.el }) as ReturnType<typeof mount>,
+      mount(FloorItemsPanel, { target: this.el }) as ReturnType<typeof mount>,
+      mount(KeysOverlay, { target: this.el }) as ReturnType<typeof mount>,
+    );
   }
 
   bindWorld(world: object): void { this.world = world; }
+  bindRooms(rooms: RoomInfo[]): void { this.rooms = rooms; }
+  bindShipType(name: string): void { hudStore.shipType = name; }
+  bindEntitySpecies(fn: (eid: number) => string | undefined): void { this.entitySpeciesLookup = fn; }
 
-  update(playerEid: number, turnCount: number, phase: TurnPhase, sandboxActive = false, fps = 0): void {
-    const root = this.el.querySelector('.hud') as HTMLElement | null;
-    if (!root) return;
+  /** Toggle the ? keys overlay */
+  toggleKeys(): void { hudStore.keysOpen = !hudStore.keysOpen; }
+  get keysOpen(): boolean { return hudStore.keysOpen; }
 
-    const topLeft = root.querySelector('.hud-top-left');
-    const topCenter = root.querySelector('.hud-top-center');
-    const topRight = root.querySelector('.hud-top-right');
+  /** Floor item selection index (-1 = none) */
+  get floorSelectedIndex(): number { return hudStore.floorSelectedIndex; }
+  set floorSelectedIndex(v: number) { hudStore.floorSelectedIndex = v; }
+  get floorItems(): FloorThing[] { return hudStore.floorItems; }
 
-    if (topLeft) topLeft.textContent = `(${Position.x[playerEid]}, ${Position.y[playerEid]})`;
-    if (topCenter) topCenter.textContent = sandboxActive ? PHASE_LABELS[-1] : (PHASE_LABELS[phase] ?? '');
-    if (topRight) {
-      topRight.innerHTML = `<div>Turn ${turnCount}</div><div class="hud-dim">${Math.round(fps)} fps</div>`;
+  update(
+    playerEid: number,
+    turnCount: number,
+    fps = 0,
+    sandboxActive = false,
+    entitySprites?: Map<number, unknown>,
+  ): void {
+    // ── Top overlay ──
+    hudStore.turnCount = turnCount;
+    hudStore.fps = fps;
+    hudStore.sandboxActive = sandboxActive;
+
+    // Room name (only recompute on tile change)
+    const px = Position.x[playerEid];
+    const py = Position.y[playerEid];
+    const tileKey = `${px},${py}`;
+    if (tileKey !== this.lastPlayerTileKey) {
+      this.lastPlayerTileKey = tileKey;
+      hudStore.roomName = this.getRoomNameAt(px, py);
     }
 
-    // Player HP bar
+    // ── Player status ──
     const hp = Health.hp[playerEid];
     const maxHp = Health.maxHp[playerEid];
-    const hpRatio = maxHp > 0 ? hp / maxHp : 0;
-    const hpColor = hpRatio > 0.6 ? '#4ec9b0' : hpRatio > 0.3 ? '#c9a84e' : '#e94560';
 
-    const hpFill = root.querySelector('.hud-hp-fill') as HTMLElement | null;
-    const hpText = root.querySelector('.hud-hp-text') as HTMLElement | null;
-    if (hpFill) {
-      hpFill.style.width = `${hpRatio * 100}%`;
-      hpFill.style.background = hpColor;
+    // Track prevHp for damage flash (only on actual damage, not on init)
+    if (this.lastHp >= 0 && hp < this.lastHp) {
+      hudStore.prevHp = this.lastHp;
     }
-    if (hpText) hpText.textContent = `${hp}/${maxHp}`;
+    this.lastHp = hp;
 
-    // Conditions
-    const conditions: string[] = [];
+    hudStore.hp = hp;
+    hudStore.maxHp = maxHp;
+
     if (this.world && hasComponent(this.world, playerEid, Body)) {
-      const consciousness = Body.consciousness[playerEid];
-      const mobility = Body.mobility[playerEid];
-      const manipulation = Body.manipulation[playerEid];
-      const circulation = Body.circulation[playerEid];
-
-      if (consciousness < 10) conditions.push('UNCONSCIOUS');
-      else if (consciousness < 50) conditions.push('DAZED');
-      if (mobility === 0) conditions.push('IMMOBILE');
-      else if (mobility < 50) conditions.push('HOBBLED');
-      if (manipulation === 0) conditions.push('NO HANDS');
-      if (circulation === 0) conditions.push('NO PULSE');
-      else if (circulation < 50) conditions.push('WEAK PULSE');
+      hudStore.mobility = Body.mobility[playerEid];
+      hudStore.manipulation = Body.manipulation[playerEid];
+      hudStore.consciousness = Body.consciousness[playerEid];
+      hudStore.circulation = Body.circulation[playerEid];
     }
 
-    const condEl = root.querySelector('.hud-conditions') as HTMLElement | null;
-    if (condEl) {
-      if (conditions.length > 0) {
-        condEl.innerHTML = conditions.map(c => `<span class="hud-condition">${c}</span>`).join('');
-        condEl.style.display = '';
-      } else {
-        condEl.innerHTML = '';
+    // ── Game log ──
+    hudStore.currentTurn = turnCount;
+
+    // ── Floor items ──
+    this.updateFloorItems(playerEid, entitySprites);
+  }
+
+  private updateFloorItems(playerEid: number, entitySprites?: Map<number, unknown>): void {
+    const px = Position.x[playerEid];
+    const py = Position.y[playerEid];
+    const things: FloorThing[] = [];
+
+    // Corpses
+    if (entitySprites && this.world) {
+      for (const [eid] of entitySprites) {
+        if (eid === playerEid) continue;
+        if (!hasComponent(this.world, eid, Dead) || !hasComponent(this.world, eid, Body)) continue;
+        if (Position.x[eid] === px && Position.y[eid] === py) {
+          let name = 'corpse';
+          if (this.entitySpeciesLookup) {
+            const speciesId = this.entitySpeciesLookup(eid);
+            if (speciesId) name = `${speciesId} corpse`;
+          }
+          things.push({ eid, name, kind: 'corpse' });
+        }
       }
+    }
+
+    // Items
+    const itemEids = findItemsAtPosition(px, py, 10000);
+    for (const eid of itemEids) {
+      const data = getItemData(eid);
+      const partData = getPartData(eid);
+      things.push({
+        eid,
+        name: data?.name ?? 'item',
+        kind: partData ? 'part' : 'item',
+      });
+    }
+
+    hudStore.floorItems = things;
+    // Reset selection if items changed
+    if (hudStore.floorSelectedIndex >= things.length) {
+      hudStore.floorSelectedIndex = -1;
     }
   }
 
+  private getRoomNameAt(x: number, y: number): string {
+    for (const room of this.rooms) {
+      const r = room.rect;
+      if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+        return room.function?.name ?? '';
+      }
+    }
+    return '';
+  }
+
+  /** Clear intro animation flags (call after intro completes) */
+  clearIntro(): void {
+    hudStore.intro = false;
+  }
+
   destroy(): void {
-    unmount(this.handle as ReturnType<typeof mount>);
+    for (const h of this.handles) unmount(h);
     this.el.remove();
   }
 }

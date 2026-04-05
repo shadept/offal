@@ -1,0 +1,97 @@
+/* ═══════════════════════════════════════════════════════════
+   Shared HUD styles — frosted glass panels
+   ═══════════════════════════════════════════════════════════ */
+
+/* Global visor warp — pincushion distortion on the entire HUD layer */
+#hud-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  filter: url(#visor-warp);
+  z-index: 10;
+}
+
+/* Frosted glass panel base */
+.hud-panel {
+  position: fixed;
+  font-family: monospace;
+  font-size: 0.85rem;
+  pointer-events: auto;
+  z-index: 10;
+
+  /* Frosted glass */
+  background: rgba(8, 8, 16, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  border: 1px solid rgba(78, 201, 176, 0.08);
+}
+
+/* ── Bottom-left panel (status) ── */
+.hud-panel-bl {
+  bottom: 0;
+  left: 0;
+  clip-path: polygon(0% 0%, 92% 0%, 100% 30%, 100% 100%, 0% 100%);
+  border: none;
+  padding: 0.6rem 2.5rem 0.6rem 0.8rem;
+}
+
+/* ── Bottom-right panel (log) ── */
+.hud-panel-br {
+  bottom: 0;
+  right: 0;
+  clip-path: polygon(8% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 30%);
+  border: none;
+  padding: 0.6rem 0.8rem 0.6rem 2.5rem;
+}
+
+/* ── Inner glow ── */
+.hud-panel-bl,
+.hud-panel-br {
+  box-shadow: inset 0 1px 0 rgba(78, 201, 176, 0.1),
+              inset 0 0 20px rgba(78, 201, 176, 0.03);
+}
+
+/* ── Damage pulse ── */
+@keyframes hud-damage-pulse {
+  0%   { box-shadow: inset 0 0 20px rgba(233, 69, 96, 0.2), 0 0 12px rgba(233, 69, 96, 0.15); }
+  100% { box-shadow: inset 0 1px 0 rgba(78, 201, 176, 0.1), inset 0 0 20px rgba(78, 201, 176, 0.03); }
+}
+.hud-panel-damage {
+  animation: hud-damage-pulse 0.5s ease-out;
+}
+
+/* ── Slide-in animations for intro ── */
+@keyframes hud-slide-up-bl {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes hud-slide-up-br {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes hud-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.hud-intro-bl {
+  animation: hud-slide-up-bl 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.hud-intro-br {
+  animation: hud-slide-up-br 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
+  opacity: 0;
+}
+.hud-intro-fade {
+  animation: hud-fade-in 0.4s ease 0.2s forwards;
+  opacity: 0;
+}
+
+/* ── Naked top text ── */
+.hud-naked {
+  position: fixed;
+  font-family: monospace;
+  pointer-events: none;
+  z-index: 10;
+  text-shadow: 0 0 4px #000, 0 0 8px #000;
+}

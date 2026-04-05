@@ -57,7 +57,6 @@ import { TEX, speciesTexKey, archFloorTex, archWallTex } from './BootScene';
 import { HUD } from '../ui/HUD';
 import { SandboxController } from '../sandbox/SandboxController';
 import { mount, unmount } from 'svelte';
-import GameLogPanel from '../ui/GameLogPanel.svelte';
 import { setDamageLogContext } from '../ecs/damage';
 import { gameLog } from '../ui/gameLog';
 import SandboxPanel from '../ui/SandboxPanel.svelte';
@@ -95,7 +94,8 @@ export class GameScene extends Scene {
   private entitySpecies = new Map<number, string>();
   private tileContainer!: Phaser.GameObjects.Container;
   private overlayContainer!: Phaser.GameObjects.Container;
-  private entityContainer!: Phaser.GameObjects.Container;
+  private objectContainer!: Phaser.GameObjects.Container;  // items, corpses, severed parts
+  private entityContainer!: Phaser.GameObjects.Container;  // living creatures
   /** Fire overlay sprites indexed by tile flat index */
   private fireOverlays = new Map<number, Phaser.GameObjects.Image>();
   /** Fluid overlay sprites indexed by tile flat index */
@@ -145,7 +145,6 @@ export class GameScene extends Scene {
   // ── Sandbox ──
   private sandbox!: SandboxController;
   private sandboxPanelHandle: Record<string, unknown> | null = null;
-  private gameLogHandle: Record<string, unknown> | null = null;
   private tabKey!: Phaser.Input.Keyboard.Key;
   private advanceKey!: Phaser.Input.Keyboard.Key;
   private graphKey!: Phaser.Input.Keyboard.Key;
@@ -153,6 +152,10 @@ export class GameScene extends Scene {
   private bodyKey!: Phaser.Input.Keyboard.Key;
   private interactKey!: Phaser.Input.Keyboard.Key;
   private revealKey!: Phaser.Input.Keyboard.Key;
+  // ── Floor interaction (E-key hold) ──
+  private interactHoldStart = 0;
+  private interactHoldActive = false;
+  private interactSelectionMode = false;
   private inventoryPanelHandle: Record<string, unknown> | null = null;
   private bodyPanelHandle: Record<string, unknown> | null = null;
   private lootPanelHandle: Record<string, unknown> | null = null;
@@ -213,10 +216,11 @@ export class GameScene extends Scene {
     this.nebulaBg.setScrollFactor(0.3);
     this.nebulaBg.setDepth(-1);
 
-    // ── Containers (tile layer below overlay layer below entity layer) ──
+    // ── Containers (bottom→top: tiles, overlays, objects, entities) ──
     this.tileContainer = this.add.container(0, 0);
     this.overlayContainer = this.add.container(0, 0);
-    this.entityContainer = this.add.container(0, 0);
+    this.objectContainer = this.add.container(0, 0);  // items, corpses, severed parts
+    this.entityContainer = this.add.container(0, 0);  // living creatures
     this.hpBarGraphics = this.add.graphics();
     this.hpBarGraphics.setDepth(3); // above entities
 
@@ -327,6 +331,25 @@ export class GameScene extends Scene {
     this.cameras.main.startFollow(playerSprite, true, 0.15, 0.15,
       -TILE_SIZE / 2, -TILE_SIZE / 2);
 
+    // ── Intro animation — camera zoom in + HUD slide ──
+    {
+      const cam = this.cameras.main;
+      const targetZoom = cam.zoom || 1;
+      cam.setZoom(targetZoom * 0.85); // Start zoomed out
+      cam.setAlpha(0.7);
+      this.tweens.add({
+        targets: cam,
+        zoom: targetZoom,
+        alpha: 1,
+        duration: 500,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          // Clear HUD intro flags after panels have slid in
+          this.time.delayedCall(100, () => this.hud.clearIntro());
+        },
+      });
+    }
+
     // ── Lightmap shader filter ──
     try {
       const renderer = this.game.renderer;
@@ -378,6 +401,12 @@ export class GameScene extends Scene {
     this.bodyKey = this.input.keyboard!.addKey('B');
     this.interactKey = this.input.keyboard!.addKey('E');
     this.revealKey = this.input.keyboard!.addKey('R');
+    // ? key handled via DOM keydown (Shift+/ = ?)
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === '?' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        this.hud.toggleKeys();
+      }
+    });
 
     // ── Ambient: spark emitter on wall edges ──
     this.setupAmbientEffects();
@@ -385,7 +414,14 @@ export class GameScene extends Scene {
     // ── HUD ──
     this.hud = new HUD();
     this.hud.bindWorld(this.world);
-    this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase);
+    this.hud.bindRooms(this.currentRooms);
+    this.hud.bindEntitySpecies((eid: number) => this.entitySpecies.get(eid));
+    {
+      const reg = getRegistry();
+      const shipTypeData = reg.shipTypes.get(shipResult.graph.shipType);
+      this.hud.bindShipType(shipTypeData?.name ?? shipResult.graph.shipType);
+    }
+    this.hud.update(this.playerEid, this.turnSystem.turnCount, 0, false, this.entitySprites);
 
     // ── Sandbox ──
     this.sandbox = new SandboxController();
@@ -404,8 +440,7 @@ export class GameScene extends Scene {
 
     this.sandboxPanelHandle = mount(SandboxPanel, { target: document.body, props: { ctrl: this.sandbox } });
 
-    // ── Game log ──
-    this.gameLogHandle = mount(GameLogPanel, { target: document.body });
+    // ── Game log is now managed by HUD ──
 
     // ── Inventory panel ──
     this.inventoryPanelHandle = mount(InventoryPanel, {
@@ -752,10 +787,8 @@ export class GameScene extends Scene {
       bodyStore.toggle(this.playerEid);
     }
 
-    // ── Interact (E key) — loot corpses, pick up items ──
-    if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
-      this.handleInteract();
-    }
+    // ── Interact (E key) — tap/hold/selection ──
+    this.handleInteractInput(delta);
 
     // ── Toggle reveal all (R key) ──
     if (Phaser.Input.Keyboard.JustDown(this.revealKey)) {
@@ -831,7 +864,7 @@ export class GameScene extends Scene {
 
     // ── HUD + HP bars ──
     const fps = this.game.loop.actualFps;
-    this.hud.update(this.playerEid, this.turnSystem.turnCount, this.turnSystem.phase, this.sandbox.active, fps);
+    this.hud.update(this.playerEid, this.turnSystem.turnCount, fps, this.sandbox.active, this.entitySprites);
     this.renderEntityHpBars();
   }
 
@@ -949,14 +982,20 @@ export class GameScene extends Scene {
   // ENTITY SPRITES
   // ════════════════════════════════════════════════════════════
 
-  private createEntitySprite(eid: number, speciesId?: string, textureKey?: string): Phaser.GameObjects.Image {
+  private createEntitySprite(
+    eid: number,
+    speciesId?: string,
+    textureKey?: string,
+    container?: Phaser.GameObjects.Container,
+  ): Phaser.GameObjects.Image {
     if (speciesId) this.entitySpecies.set(eid, speciesId);
     const tex = textureKey ?? speciesTexKey(this.entitySpecies.get(eid) ?? 'salvager');
     const px = Position.x[eid] * TILE_SIZE;
     const py = Position.y[eid] * TILE_SIZE;
     const sprite = this.add.image(px, py, tex);
     sprite.setOrigin(0, 0);
-    this.entityContainer.add(sprite);
+    const target = container ?? (Renderable.layer[eid] <= 1 ? this.objectContainer : this.entityContainer);
+    target.add(sprite);
     this.entitySprites.set(eid, sprite);
 
     return sprite;
@@ -974,7 +1013,14 @@ export class GameScene extends Scene {
   /** Create a sprite for an item entity on the floor. */
   private createItemSprite(eid: number): void {
     if (this.entitySprites.has(eid)) return;
-    this.createEntitySprite(eid, undefined, TEX.ITEM);
+    this.createEntitySprite(eid, undefined, TEX.ITEM, this.objectContainer);
+  }
+
+  /** Move an entity sprite to objectContainer if not already there (used on death). */
+  private demoteToObjectLayer(sprite: Phaser.GameObjects.Image): void {
+    if (this.objectContainer.exists(sprite)) return;
+    this.entityContainer.remove(sprite);
+    this.objectContainer.add(sprite);
   }
 
   /** Remove an entity sprite by eid. */
@@ -995,7 +1041,135 @@ export class GameScene extends Scene {
   // INPUT
   // ════════════════════════════════════════════════════════════
 
-  /** Handle E key: interact with corpses/items on the player's tile. */
+  /**
+   * E-key interaction state machine:
+   * - Tap E (<1s): pick up top item / loot top corpse
+   * - Hold E (≥1s): pick up all loose items (skip corpses)
+   * - Hold E + W/S: selection mode — highlight item, release to act
+   * - Movement cancels hold
+   */
+  private handleInteractInput(delta: number): void {
+    const items = this.hud.floorItems;
+    if (items.length === 0) {
+      this.interactHoldActive = false;
+      this.interactSelectionMode = false;
+      this.hud.floorSelectedIndex = -1;
+      return;
+    }
+
+    // Dismiss keys overlay on E press
+    if (this.hud.keysOpen && this.interactKey.isDown) {
+      return; // KeysOverlay handles its own dismiss
+    }
+
+    // E just pressed — start tracking hold
+    if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
+      this.interactHoldStart = this.time.now;
+      this.interactHoldActive = true;
+      this.interactSelectionMode = false;
+      this.hud.floorSelectedIndex = -1;
+    }
+
+    // E is held
+    if (this.interactHoldActive && this.interactKey.isDown) {
+      // Check for movement keys — cancel hold if player moves
+      const movingUp = this.cursors.up.isDown || this.wasd.W.isDown;
+      const movingDown = this.cursors.down.isDown || this.wasd.S.isDown;
+      const movingLeft = this.cursors.left.isDown || this.wasd.A.isDown;
+      const movingRight = this.cursors.right.isDown || this.wasd.D.isDown;
+
+      if (movingLeft || movingRight) {
+        // Horizontal movement cancels hold entirely
+        this.interactHoldActive = false;
+        this.interactSelectionMode = false;
+        this.hud.floorSelectedIndex = -1;
+        return;
+      }
+
+      // Up/down while holding E = selection mode
+      if (movingUp || movingDown) {
+        if (!this.interactSelectionMode) {
+          this.interactSelectionMode = true;
+          this.hud.floorSelectedIndex = 0;
+        } else {
+          // Move selection — use JustDown for step-by-step
+          if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W)) {
+            this.hud.floorSelectedIndex = Math.max(0, this.hud.floorSelectedIndex - 1);
+          }
+          if (Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.wasd.S)) {
+            this.hud.floorSelectedIndex = Math.min(items.length - 1, this.hud.floorSelectedIndex + 1);
+          }
+        }
+      }
+    }
+
+    // E released — determine action
+    if (this.interactHoldActive && Phaser.Input.Keyboard.JustUp(this.interactKey)) {
+      const holdDuration = this.time.now - this.interactHoldStart;
+      this.interactHoldActive = false;
+
+      if (this.interactSelectionMode) {
+        // Act on selected item
+        const idx = this.hud.floorSelectedIndex;
+        if (idx >= 0 && idx < items.length) {
+          this.interactWithFloorThing(items[idx]);
+        }
+        this.interactSelectionMode = false;
+        this.hud.floorSelectedIndex = -1;
+      } else if (holdDuration >= 1000) {
+        // Hold: pick up all loose items
+        this.pickUpAllFloorItems();
+      } else {
+        // Tap: interact with top item
+        if (items.length > 0) {
+          this.interactWithFloorThing(items[0]);
+        }
+      }
+    }
+  }
+
+  /** Act on a single floor thing — pick up item or loot corpse. */
+  private interactWithFloorThing(thing: { eid: number; kind: string }): void {
+    if (hasComponent(this.world, this.playerEid, Body) && Body.manipulation[this.playerEid] === 0) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot interact — no manipulation');
+      return;
+    }
+    if (thing.kind === 'corpse') {
+      lootStore.loot(thing.eid);
+    } else {
+      if (!canPickUp(this.playerEid, thing.eid)) {
+        gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+        return;
+      }
+      const name = getItemData(thing.eid)?.name ?? 'item';
+      this.removeEntitySprite(thing.eid);
+      pickUp(this.world, this.playerEid, thing.eid);
+      gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${name}`);
+      inventoryStore.notify();
+    }
+  }
+
+  /** Pick up all loose items on the player's tile (skip corpses). */
+  private pickUpAllFloorItems(): void {
+    if (hasComponent(this.world, this.playerEid, Body) && Body.manipulation[this.playerEid] === 0) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot interact — no manipulation');
+      return;
+    }
+    const items = this.hud.floorItems.filter(t => t.kind !== 'corpse');
+    let count = 0;
+    for (const item of items) {
+      if (!canPickUp(this.playerEid, item.eid)) break;
+      this.removeEntitySprite(item.eid);
+      pickUp(this.world, this.playerEid, item.eid);
+      count++;
+    }
+    if (count > 0) {
+      gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${count} item${count > 1 ? 's' : ''}`);
+      inventoryStore.notify();
+    }
+  }
+
+  /** Handle E key: interact with corpses/items on the player's tile (legacy — now used as fallback). */
   private handleInteract(): void {
     if (lootStore.open) { lootStore.close(); return; }
     if (hasComponent(this.world, this.playerEid, Body) && Body.manipulation[this.playerEid] === 0) {
@@ -1086,7 +1260,7 @@ export class GameScene extends Scene {
         sprite.setTint(0x444444);
         sprite.setAlpha(0.7);
         sprite.setScale(1);
-        sprite.setDepth(-1);
+        this.demoteToObjectLayer(sprite);
       } else {
         sprite.setTint(0xffffff);
         sprite.setAlpha(1);
@@ -1460,7 +1634,7 @@ export class GameScene extends Scene {
           if (sprite) {
             sprite.setTint(0x664422);
             sprite.setAlpha(0.7);
-            sprite.setDepth(-1);
+            this.demoteToObjectLayer(sprite);
           }
         } else {
           this.destroyEntitySprite(eid);
@@ -1482,7 +1656,7 @@ export class GameScene extends Scene {
           ease: 'Quad.easeOut',
           onComplete: () => {
             sprite.setTint(0x664422);
-            sprite.setDepth(-1);
+            this.demoteToObjectLayer(sprite);
             onComplete();
           },
         });
@@ -1820,6 +1994,7 @@ export class GameScene extends Scene {
     this.tileSprites = [];
     this.tileContainer.removeAll(true);
     this.overlayContainer.removeAll(true);
+    this.objectContainer.removeAll(true);
     this.entityContainer.removeAll(true);
 
     // Destroy fire/fluid/gas overlays
@@ -1868,6 +2043,14 @@ export class GameScene extends Scene {
     this.shipGraphData = shipResult.graph;
     console.log(`[dungeon] Regenerated ship with seed "${this.currentSeed}", arch="${this.currentArchitectureId}", ${shipResult.rooms.length} rooms`);
     gameLog.clear();
+
+    // Update HUD bindings for new ship
+    this.hud.bindRooms(this.currentRooms);
+    {
+      const reg = getRegistry();
+      const shipTypeData = reg.shipTypes.get(shipResult.graph.shipType);
+      this.hud.bindShipType(shipTypeData?.name ?? shipResult.graph.shipType);
+    }
 
     // ── Rebuild physics ──
     this.tilePhysics = new TilePhysicsMap(this.tileMap.width, this.tileMap.height);
@@ -2249,7 +2432,7 @@ export class GameScene extends Scene {
       if (hasComponent(this.world, eid, Dead)) {
         sprite.setTint(0x444444);
         sprite.setAlpha(0.7);
-        sprite.setDepth(-1);
+        this.demoteToObjectLayer(sprite);
       }
     }
 
