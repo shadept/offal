@@ -1,28 +1,26 @@
 /**
  * HUD — coordinates all HUD overlay components.
- * Mounts Svelte components and updates hudStore with game state.
+ * Updates HUD state and manages DOM-only visor overlays.
  */
-import { mount, unmount } from 'svelte';
-import HudOverlay from './HudOverlay.svelte';
-import PlayerStatusPanel from './PlayerStatusPanel.svelte';
-import GameLogPanel from './GameLogPanel.svelte';
-import FloorItemsPanel from './FloorItemsPanel.svelte';
-import KeysOverlay from './KeysOverlay.svelte';
+import './hud.css';
 import { hudStore } from './hudStore.svelte';
 import type { FloorThing } from './floorTypes';
 import { hasComponent } from 'bitecs';
 import { Health, Body, Dead, Position } from '../ecs/components';
 import { findItemsAtPosition, getItemData } from '../ecs/inventory';
-import { getPartData } from '../ecs/body';
+import { getPartData, findPartsAtPosition } from '../ecs/body';
 import type { RoomInfo } from '../map/dungeonGen';
-import { injectVisorWarpFilters } from './visorWarp';
+import { injectVisorWarpFilters, setupWarpInteraction } from './visorWarp';
+import { applyDomVisorState } from './visorRuntimeSettings';
+import Phaser from 'phaser';
+import { uiEventBus } from './uiEventBus';
 
 export class HUD {
   private el: HTMLDivElement;
+  private overlayEl: HTMLDivElement;
   private world: object | null = null;
-
-  // Component mount handles
-  private handles: ReturnType<typeof mount>[] = [];
+  private game: Phaser.Game;
+  private readonly resizeHandler: () => void;
 
   // Room lookup cache
   private rooms: RoomInfo[] = [];
@@ -34,20 +32,23 @@ export class HUD {
   // Entity species lookup (for corpse names)
   private entitySpeciesLookup: ((eid: number) => string | undefined) | null = null;
 
-  constructor() {
+  constructor(game: Phaser.Game) {
+    this.game = game;
     injectVisorWarpFilters();
+    setupWarpInteraction();
+    this.resizeHandler = () => injectVisorWarpFilters();
+    window.addEventListener('resize', this.resizeHandler);
 
     this.el = document.createElement('div');
     this.el.id = 'hud-root';
     document.body.appendChild(this.el);
 
-    this.handles.push(
-      mount(HudOverlay, { target: this.el }) as ReturnType<typeof mount>,
-      mount(PlayerStatusPanel, { target: this.el }) as ReturnType<typeof mount>,
-      mount(GameLogPanel, { target: this.el }) as ReturnType<typeof mount>,
-      mount(FloorItemsPanel, { target: this.el }) as ReturnType<typeof mount>,
-      mount(KeysOverlay, { target: this.el }) as ReturnType<typeof mount>,
-    );
+    this.overlayEl = document.createElement('div');
+    this.overlayEl.id = 'hud-visor-overlay';
+    document.body.appendChild(this.overlayEl);
+
+    applyDomVisorState(this.el);
+    hudStore.keysOpen = false;
   }
 
   bindWorld(world: object): void { this.world = world; }
@@ -55,13 +56,15 @@ export class HUD {
   bindShipType(name: string): void { hudStore.shipType = name; }
   bindEntitySpecies(fn: (eid: number) => string | undefined): void { this.entitySpeciesLookup = fn; }
 
-  /** Toggle the ? keys overlay */
-  toggleKeys(): void { hudStore.keysOpen = !hudStore.keysOpen; }
-  get keysOpen(): boolean { return hudStore.keysOpen; }
+  /** Keys overlay is not ported to Phaser yet. */
+  toggleKeys(): void {}
+  get keysOpen(): boolean { return false; }
 
   /** Floor item selection index (-1 = none) */
   get floorSelectedIndex(): number { return hudStore.floorSelectedIndex; }
   set floorSelectedIndex(v: number) { hudStore.floorSelectedIndex = v; }
+  get interactHoldProgress(): number { return hudStore.interactHoldProgress; }
+  set interactHoldProgress(v: number) { hudStore.interactHoldProgress = v; }
   get floorItems(): FloorThing[] { return hudStore.floorItems; }
 
   update(
@@ -85,10 +88,36 @@ export class HUD {
       hudStore.roomName = this.getRoomNameAt(px, py);
     }
 
-    // ── Player status ──
+    // ── Floor items ──
+    this.updateFloorItems(playerEid, entitySprites);
+
+    // ── Emit to UIScene ──
     const hp = Health.hp[playerEid];
     const maxHp = Health.maxHp[playerEid];
+    let mob = 1, man = 1, con = 100, cir = 100;
+    if (this.world && hasComponent(this.world, playerEid, Body)) {
+      mob = Body.mobility[playerEid];
+      man = Body.manipulation[playerEid];
+      con = Body.consciousness[playerEid];
+      cir = Body.circulation[playerEid];
+    }
 
+    uiEventBus.emit('update-hud', {
+      shipType: hudStore.shipType,
+      location: hudStore.roomName,
+      turn: turnCount,
+      fps: fps,
+      hp, maxHp,
+      mobility: mob,
+      manipulation: man,
+      consciousness: con,
+      circulation: cir,
+      floorItems: hudStore.floorItems,
+      floorSelectedIndex: hudStore.floorSelectedIndex,
+      interactHoldProgress: hudStore.interactHoldProgress,
+    });
+
+    // ── Player status ──
     // Track prevHp for damage flash (only on actual damage, not on init)
     if (this.lastHp >= 0 && hp < this.lastHp) {
       hudStore.prevHp = this.lastHp;
@@ -108,14 +137,15 @@ export class HUD {
     // ── Game log ──
     hudStore.currentTurn = turnCount;
 
-    // ── Floor items ──
-    this.updateFloorItems(playerEid, entitySprites);
   }
 
   private updateFloorItems(playerEid: number, entitySprites?: Map<number, unknown>): void {
     const px = Position.x[playerEid];
     const py = Position.y[playerEid];
     const things: FloorThing[] = [];
+    const previousThings = hudStore.floorItems;
+    const previousSelectedThing =
+      hudStore.floorSelectedIndex >= 0 ? previousThings[hudStore.floorSelectedIndex] : undefined;
 
     // Corpses
     if (entitySprites && this.world) {
@@ -137,19 +167,42 @@ export class HUD {
     const itemEids = findItemsAtPosition(px, py, 10000);
     for (const eid of itemEids) {
       const data = getItemData(eid);
-      const partData = getPartData(eid);
       things.push({
         eid,
         name: data?.name ?? 'item',
-        kind: partData ? 'part' : 'item',
+        kind: 'item',
       });
     }
 
-    hudStore.floorItems = things;
-    // Reset selection if items changed
-    if (hudStore.floorSelectedIndex >= things.length) {
-      hudStore.floorSelectedIndex = -1;
+    if (this.world) {
+      const partEids = findPartsAtPosition(this.world, px, py, 10000);
+      for (const eid of partEids) {
+        const data = getPartData(eid);
+        things.push({
+          eid,
+          name: data?.name ?? 'part',
+          kind: 'part',
+        });
+      }
     }
+
+    hudStore.floorItems = things;
+
+    if (things.length === 0) {
+      hudStore.floorSelectedIndex = -1;
+      return;
+    }
+
+    if (previousSelectedThing) {
+      const preservedIndex = things.findIndex((thing) => thing.eid === previousSelectedThing.eid);
+      if (preservedIndex >= 0) {
+        hudStore.floorSelectedIndex = preservedIndex;
+        return;
+      }
+    }
+
+    const preferredIndex = things.findIndex((thing) => thing.kind !== 'corpse');
+    hudStore.floorSelectedIndex = preferredIndex >= 0 ? preferredIndex : 0;
   }
 
   private getRoomNameAt(x: number, y: number): string {
@@ -168,7 +221,8 @@ export class HUD {
   }
 
   destroy(): void {
-    for (const h of this.handles) unmount(h);
     this.el.remove();
+    this.overlayEl.remove();
+    window.removeEventListener('resize', this.resizeHandler);
   }
 }

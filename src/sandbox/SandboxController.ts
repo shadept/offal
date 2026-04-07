@@ -22,6 +22,12 @@ import type { Lightmap } from '../lighting/Lightmap';
 import { DebugOverlayRegistry } from './debugOverlays';
 import { clearEntityAICache } from '../ecs/systems/aiSystem';
 import type { SandboxTool, TileInspectData, EntityInspectData, ComponentSectionData } from './types';
+import {
+  getVisorRuntimeState,
+  setVisorDistortionEnabled as setRuntimeVisorDistortionEnabled,
+  setVisorScanlinesEnabled as setRuntimeVisorScanlinesEnabled,
+  setVisorVignetteEnabled as setRuntimeVisorVignetteEnabled,
+} from '../ui/visorRuntimeSettings';
 
 const VIS_NAMES: Record<number, string> = {
   [Visibility.UNSEEN]: 'Unseen',
@@ -116,6 +122,18 @@ export class SandboxController {
   // ═══════════════════════════════════════════════════════════
   // QUERIES
   // ═══════════════════════════════════════════════════════════
+
+  get visorDistortionEnabled(): boolean {
+    return getVisorRuntimeState().distortionEnabled;
+  }
+
+  get visorScanlinesEnabled(): boolean {
+    return getVisorRuntimeState().scanlinesEnabled;
+  }
+
+  get visorVignetteEnabled(): boolean {
+    return getVisorRuntimeState().vignetteEnabled;
+  }
 
   getTileInfo(x: number, y: number): TileInspectData | null {
     if (!this.tileMap.inBounds(x, y)) return null;
@@ -464,6 +482,21 @@ export class SandboxController {
   setAiOnly(v: boolean): void {
     this.aiOnly = v;
     this.emit('aionly_changed', v);
+  }
+
+  setVisorDistortionEnabled(v: boolean): void {
+    setRuntimeVisorDistortionEnabled(v);
+    this.emit('visor_distortion_changed', v);
+  }
+
+  setVisorScanlinesEnabled(v: boolean): void {
+    setRuntimeVisorScanlinesEnabled(v);
+    this.emit('visor_scanlines_changed', v);
+  }
+
+  setVisorVignetteEnabled(v: boolean): void {
+    setRuntimeVisorVignetteEnabled(v);
+    this.emit('visor_vignette_changed', v);
   }
 
   /** Request ship regeneration. GameScene handles the actual work. */

@@ -33,6 +33,9 @@ export class SandboxStore {
   get revealAll()        { this.#tick; return this.#ctrl.revealAll; }
   get lightDebugMode()   { this.#tick; return this.#ctrl.lightDebugMode; }
   get aiOnly()           { this.#tick; return this.#ctrl.aiOnly; }
+  get visorDistortionEnabled() { this.#tick; return this.#ctrl.visorDistortionEnabled; }
+  get visorScanlinesEnabled()  { this.#tick; return this.#ctrl.visorScanlinesEnabled; }
+  get visorVignetteEnabled()   { this.#tick; return this.#ctrl.visorVignetteEnabled; }
   get paintTileIndex()   { this.#tick; return this.#ctrl.paintTileIndex; }
   get selectedSpeciesId(){ this.#tick; return this.#ctrl.selectedSpeciesId; }
 }

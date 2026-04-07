@@ -78,6 +78,44 @@
   </div>
 </div>
 
+<!-- Visor Debug -->
+<div class="sb-section">
+  <div class="sb-section-title">Visor Debug</div>
+
+  <div class="sb-sim-row">
+    <label class="sb-checkbox-label">
+      <input
+        type="checkbox"
+        checked={store.visorDistortionEnabled}
+        onchange={(e) => store.ctrl.setVisorDistortionEnabled(e.currentTarget.checked)}
+      />
+      Distortion
+    </label>
+  </div>
+
+  <div class="sb-sim-row">
+    <label class="sb-checkbox-label">
+      <input
+        type="checkbox"
+        checked={store.visorScanlinesEnabled}
+        onchange={(e) => store.ctrl.setVisorScanlinesEnabled(e.currentTarget.checked)}
+      />
+      Scanlines
+    </label>
+  </div>
+
+  <div class="sb-sim-row">
+    <label class="sb-checkbox-label">
+      <input
+        type="checkbox"
+        checked={store.visorVignetteEnabled}
+        onchange={(e) => store.ctrl.setVisorVignetteEnabled(e.currentTarget.checked)}
+      />
+      Vignette / Rim
+    </label>
+  </div>
+</div>
+
 <!-- Event Triggers -->
 <div class="sb-section">
   <div class="sb-section-title">Event Triggers</div>

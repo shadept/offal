@@ -9,7 +9,7 @@
 import { addEntity, addComponent, removeComponent, hasComponent } from 'bitecs';
 import { getRegistry } from '../data/loader';
 import {
-  Item, HeldBy, Inventory, Position, Renderable, Health,
+  Item, HeldBy, Inventory, Position, Renderable, Health, PartIdentity,
 } from './components';
 import { getPartsOf, detachPart, recalcCapacities } from './body';
 import type { ItemData, DataRegistry } from '../types';
@@ -113,9 +113,20 @@ export function removeItemFromOwner(world: object, itemEid: number): void {
 /** Get the volume of an item entity. */
 export function getItemVolume(itemEid: number): number {
   const data = getItemData(itemEid);
-  if (!data) return 0;
-  const baseVol = ITEM_SIZE_VOLUME[data.size] ?? 4;
-  return baseVol * (Item.stackCount[itemEid] || 1);
+  if (data) {
+    const baseVol = ITEM_SIZE_VOLUME[data.size] ?? 4;
+    return baseVol * (Item.stackCount[itemEid] || 1);
+  }
+  if (_world && hasComponent(_world, itemEid, PartIdentity)) {
+    return 4;
+  }
+  return 0;
+}
+
+/** Track a held entity in a creature inventory and refresh cached volume. */
+export function trackInventoryEntity(ownerEid: number, entityEid: number): void {
+  addToInventoryIndex(ownerEid, entityEid);
+  recalcInventory(ownerEid);
 }
 
 /** Get a creature's total inventory capacity. */
@@ -182,9 +193,7 @@ export function pickUp(
   // Add ownership
   addComponent(world, itemEid, HeldBy);
   HeldBy.ownerEid[itemEid] = creatureEid;
-  addToInventoryIndex(creatureEid, itemEid);
-
-  recalcInventory(creatureEid);
+  trackInventoryEntity(creatureEid, itemEid);
   return true;
 }
 
@@ -225,10 +234,9 @@ export function transferItem(
   // Update ownership
   removeFromInventoryIndex(fromEid, itemEid);
   HeldBy.ownerEid[itemEid] = toEid;
-  addToInventoryIndex(toEid, itemEid);
+  trackInventoryEntity(toEid, itemEid);
 
   recalcInventory(fromEid);
-  recalcInventory(toEid);
   return true;
 }
 
@@ -334,9 +342,7 @@ export function spawnItemInInventory(
   Item.stackCount[eid] = count ?? 1;
 
   HeldBy.ownerEid[eid] = ownerEid;
-  addToInventoryIndex(ownerEid, eid);
-
-  recalcInventory(ownerEid);
+  trackInventoryEntity(ownerEid, eid);
   return eid;
 }
 

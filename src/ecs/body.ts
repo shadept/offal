@@ -422,6 +422,25 @@ export function getPartData(partEid: number): PartData | undefined {
   return getRegistry().parts.get(defId);
 }
 
+/** Find loose severed parts at a tile position. */
+export function findPartsAtPosition(
+  world: object,
+  x: number,
+  y: number,
+  maxEid = 10000,
+): number[] {
+  const results: number[] = [];
+  for (let eid = 0; eid < maxEid; eid++) {
+    if (!hasComponent(world, eid, PartIdentity)) continue;
+    if (!hasComponent(world, eid, Position)) continue;
+    if (hasComponent(world, eid, AttachedTo)) continue;
+    if (Position.x[eid] === x && Position.y[eid] === y) {
+      results.push(eid);
+    }
+  }
+  return results;
+}
+
 // ════════════════════════��══════════════════════════════════
 // DYNAMIC SLOT REGISTRATION
 // ═══════════════════════════════════════════════════════════

@@ -37,6 +37,7 @@
     transition: transform 0.2s ease;
     border-left: 1px solid #334;
     user-select: none;
+    pointer-events: auto;
   }
   #sandbox-panel.open {
     transform: translateX(0);

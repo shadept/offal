@@ -20,23 +20,21 @@ import { addEntity, addComponent, removeEntity, removeComponent, hasComponent, q
 import {
   Position, Renderable, FOV, Turn, AI, BlocksMovement,
   Health, Faction, CombatStats, Dead, Door, Teleporter, Body,
-  Item, HeldBy, Inventory,
+  Item, HeldBy, Inventory, PartIdentity,
 } from '../ecs/components';
 import { initFactions, getFactionIndex, areHostile } from '../ecs/factions';
 import { Lightmap, type LightSource } from '../lighting/Lightmap';
 import { LightmapFilter } from '../lighting/LightmapFilter';
 import { createLightmapFilterNode } from '../lighting/LightmapFilterNode';
+import { createVisorWarpFilterNode } from '../ui/canvas/VisorWarpFilterNode';
+import { VisorWarpFilter } from '../ui/canvas/VisorWarpFilter';
+import { createVisorStyleFilterNode } from '../ui/canvas/VisorStyleFilterNode';
+import { VisorStyleFilter } from '../ui/canvas/VisorStyleFilter';
 import { initBodyIndices, spawnBodyForCreature, getPartsOf, clearPartIndex, attachPart, detachPart, getPartData, getMovementCostMultiplier } from '../ecs/body';
 import { initItemIndices, bindInventoryWorld, pickUp, drop, findItemsAtPosition, getItemData, spawnItemOnFloor, canPickUp, getItemsOf, transferItem, takePartFromBody } from '../ecs/inventory';
 import { inventoryStore } from '../ui/inventoryStore';
 import { bodyStore } from '../ui/bodyStore';
 import { lootStore } from '../ui/lootStore';
-import { contextMenuStore } from '../ui/contextMenuStore';
-import InventoryPanel from '../ui/InventoryPanel.svelte';
-import BodyPanel from '../ui/BodyPanel.svelte';
-import LootPanel from '../ui/LootPanel.svelte';
-import ContextMenu from '../ui/ContextMenu.svelte';
-import Tooltip from '../ui/Tooltip.svelte';
 import { TurnSystem } from '../ecs/systems/turnSystem';
 import { tryMove, getBlockingEntity, syncDoorOverlays } from '../ecs/systems/movementSystem';
 import { processFireSystem } from '../ecs/systems/fireSystem';
@@ -61,7 +59,14 @@ import { setDamageLogContext } from '../ecs/damage';
 import { gameLog } from '../ui/gameLog';
 import SandboxPanel from '../ui/SandboxPanel.svelte';
 import { processAITurns, performAttack, clearEntityAICache } from '../ecs/systems/aiSystem';
+import { executeCraft, executeCrudeCraft, type RecipeMatch } from '../ecs/crafting';
 import { getRegistry } from '../data/loader';
+import { setUIInitPayload, uiEventBus } from '../ui/uiEventBus';
+import {
+  GAME_VISOR_WARP_CONFIG,
+  installPhaserInputWarp,
+  mapClientPointToWarpSource,
+} from '../ui/visorWarp';
 
 /** Movement tween duration in ms */
 const MOVE_DURATION = 120;
@@ -74,6 +79,9 @@ const HIT_FLASH_DURATION = 200;
 
 /** Death animation duration in ms */
 const DEATH_DURATION = 300;
+
+/** Default camera zoom when the scene starts. */
+const DEFAULT_GAME_ZOOM = 1.5;
 
 export class GameScene extends Scene {
   // ── ECS ──
@@ -156,11 +164,6 @@ export class GameScene extends Scene {
   private interactHoldStart = 0;
   private interactHoldActive = false;
   private interactSelectionMode = false;
-  private inventoryPanelHandle: Record<string, unknown> | null = null;
-  private bodyPanelHandle: Record<string, unknown> | null = null;
-  private lootPanelHandle: Record<string, unknown> | null = null;
-  private contextMenuHandle: Record<string, unknown> | null = null;
-  private tooltipHandle: Record<string, unknown> | null = null;
   private selectionHighlight!: Phaser.GameObjects.Rectangle;
   /** Tracks click-drag panning in sandbox mode */
   private dragPanning = false;
@@ -181,6 +184,9 @@ export class GameScene extends Scene {
   private shipGraphOverlay: Phaser.GameObjects.Graphics | null = null;
   private shipGraphData: ShipGraph | null = null;
 
+  private visorFilter!: VisorWarpFilter;
+  private visorStyleFilter!: VisorStyleFilter;
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -195,6 +201,7 @@ export class GameScene extends Scene {
     this.world = createGameWorld();
     bindInventoryWorld(this.world);
     inventoryStore.bindWorld(this.world);
+    lootStore.bindWorld(this.world);
     this.turnSystem = new TurnSystem();
     this.eventQueue = new VisualEventQueue();
 
@@ -334,7 +341,7 @@ export class GameScene extends Scene {
     // ── Intro animation — camera zoom in + HUD slide ──
     {
       const cam = this.cameras.main;
-      const targetZoom = cam.zoom || 1;
+      const targetZoom = DEFAULT_GAME_ZOOM;
       cam.setZoom(targetZoom * 0.85); // Start zoomed out
       cam.setAlpha(0.7);
       this.tweens.add({
@@ -350,6 +357,8 @@ export class GameScene extends Scene {
       });
     }
 
+    installPhaserInputWarp(this.input.manager, this.game.canvas, GAME_VISOR_WARP_CONFIG);
+
     // ── Lightmap shader filter ──
     try {
       const renderer = this.game.renderer;
@@ -357,6 +366,16 @@ export class GameScene extends Scene {
         const webglRenderer = renderer as any;
         const filterNode = createLightmapFilterNode(webglRenderer.renderNodes);
         webglRenderer.renderNodes.addNode('FilterLightmap', filterNode);
+
+        if (!webglRenderer.renderNodes.getNode('FilterVisorWarp')) {
+          const visorNode = createVisorWarpFilterNode(webglRenderer.renderNodes);
+          webglRenderer.renderNodes.addNode('FilterVisorWarp', visorNode);
+        }
+        if (!webglRenderer.renderNodes.getNode('FilterVisorStyle')) {
+          const visorStyleNode = createVisorStyleFilterNode(webglRenderer.renderNodes);
+          webglRenderer.renderNodes.addNode('FilterVisorStyle', visorStyleNode);
+        }
+
         this.lightmapFilter = new LightmapFilter(this.cameras.main, {
           mapWidth: this.tileMap.width,
           mapHeight: this.tileMap.height,
@@ -365,6 +384,12 @@ export class GameScene extends Scene {
           visibilityTextureKey: '_visibility',
         });
         (this.cameras.main.filters as any).external.add(this.lightmapFilter);
+
+        // Apply VisorWarp to GameScene camera
+        this.visorFilter = new VisorWarpFilter(this.cameras.main, GAME_VISOR_WARP_CONFIG);
+        (this.cameras.main.filters as any).external.add(this.visorFilter);
+        this.visorStyleFilter = new VisorStyleFilter(this.cameras.main, GAME_VISOR_WARP_CONFIG);
+        (this.cameras.main.filters as any).external.add(this.visorStyleFilter);
 
         // Override NEAREST (from pixelArt:true) with LINEAR on the lightmap
         // wrapper so bilinear interpolation persists through texture updates.
@@ -412,7 +437,7 @@ export class GameScene extends Scene {
     this.setupAmbientEffects();
 
     // ── HUD ──
-    this.hud = new HUD();
+    this.hud = new HUD(this.game);
     this.hud.bindWorld(this.world);
     this.hud.bindRooms(this.currentRooms);
     this.hud.bindEntitySpecies((eid: number) => this.entitySpecies.get(eid));
@@ -421,7 +446,15 @@ export class GameScene extends Scene {
       const shipTypeData = reg.shipTypes.get(shipResult.graph.shipType);
       this.hud.bindShipType(shipTypeData?.name ?? shipResult.graph.shipType);
     }
+    setUIInitPayload({ playerEid: this.playerEid, world: this.world });
     this.hud.update(this.playerEid, this.turnSystem.turnCount, 0, false, this.entitySprites);
+    uiEventBus.on('toggle-keys', () => this.hud.toggleKeys());
+    uiEventBus.on('drop-item', ({ itemEid }: { itemEid: number }) => this.handleInventoryDrop(itemEid));
+    uiEventBus.on('pick-up-item', ({ itemEid }: { itemEid: number }) => this.handleInventoryPickUp(itemEid));
+    uiEventBus.on('craft-items', ({ match }: { match: RecipeMatch }) => this.handleInventoryCraft(match));
+    uiEventBus.on('crude-craft-items', ({ itemEids }: { itemEids: number[] }) => this.handleInventoryCrudeCraft(itemEids));
+    uiEventBus.on('take-corpse-item', ({ ownerEid, itemEid }: { ownerEid: number; itemEid: number }) => this.handleCorpseTakeItem(ownerEid, itemEid));
+    uiEventBus.on('take-corpse-part', ({ ownerEid, partEid }: { ownerEid: number; partEid: number }) => this.handleCorpseTakePart(ownerEid, partEid));
 
     // ── Sandbox ──
     this.sandbox = new SandboxController();
@@ -442,48 +475,6 @@ export class GameScene extends Scene {
 
     // ── Game log is now managed by HUD ──
 
-    // ── Inventory panel ──
-    this.inventoryPanelHandle = mount(InventoryPanel, {
-      target: document.body,
-      props: {
-        playerEid: this.playerEid,
-        world: this.world,
-        eventQueue: this.eventQueue,
-        turnCount: this.turnSystem.turnCount,
-        maxEid: 10000,
-        playerX: Position.x[this.playerEid],
-        playerY: Position.y[this.playerEid],
-        onDrop: (itemEid: number) => {
-          const x = Position.x[this.playerEid];
-          const y = Position.y[this.playerEid];
-          drop(this.world, this.playerEid, itemEid, x, y);
-          this.createItemSprite(itemEid);
-          this.eventQueue.push({
-            type: 'item_drop',
-            entityId: this.playerEid,
-            data: { itemEid, x, y },
-          });
-          gameLog.push(this.turnSystem.turnCount, 'system',
-            `Dropped ${getItemData(itemEid)?.name ?? 'item'}`);
-        },
-        onPickUp: (itemEid: number) => {
-          if (!canPickUp(this.playerEid, itemEid)) {
-            gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
-            return;
-          }
-          const name = getItemData(itemEid)?.name ?? 'item';
-          // Remove sprite before pickup
-          this.removeEntitySprite(itemEid);
-          pickUp(this.world, this.playerEid, itemEid);
-          this.eventQueue.push({
-            type: 'item_pickup',
-            entityId: this.playerEid,
-            data: { itemEid, name },
-          });
-          gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${name}`);
-        },
-      },
-    });
     setDamageLogContext(
       (eid: number) => {
         if (eid === this.playerEid) return 'You';
@@ -498,103 +489,15 @@ export class GameScene extends Scene {
       () => this.turnSystem.turnCount,
     );
 
-    // ── Body panel ──
-    this.bodyPanelHandle = mount(BodyPanel, {
-      target: document.body,
-      props: {
-        playerEid: this.playerEid,
-        world: this.world,
-        onAttach: (partEid: number, bodyEid: number) => {
-          if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
-          const success = attachPart(this.world, partEid, bodyEid);
-          if (!success) {
-            gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot attach part');
-            return;
-          }
-          this.removeEntitySprite(partEid);
-          const name = getPartData(partEid)?.name ?? 'part';
-          gameLog.push(this.turnSystem.turnCount, 'system', `Attached ${name}`);
-          bodyStore.notify();
-          inventoryStore.notify();
-          if (!this.sandbox.active) {
-            this.turnSystem.deductEnergy(this.playerEid, 100);
-            this.turnSystem.advance(this.world);
-            this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
-          }
-        },
-        onDetach: (partEid: number, bodyEid: number) => {
-          if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
-          const x = Position.x[bodyEid];
-          const y = Position.y[bodyEid];
-          const name = getPartData(partEid)?.name ?? 'part';
-          detachPart(this.world, partEid, bodyEid, x, y);
-          this.createEntitySprite(partEid, undefined, TEX.SEVERED_PART);
-          gameLog.push(this.turnSystem.turnCount, 'system', `Detached ${name}`);
-          bodyStore.notify();
-          inventoryStore.notify();
-          if (!this.sandbox.active) {
-            this.turnSystem.deductEnergy(this.playerEid, 100);
-            this.turnSystem.advance(this.world);
-            this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
-          }
-        },
-      },
-    });
-
-    // ── Loot panel ──
-    lootStore.bindWorld(this.world);
-    this.lootPanelHandle = mount(LootPanel, {
-      target: document.body,
-      props: {
-        playerEid: this.playerEid,
-        world: this.world,
-        onTakeItem: (corpseEid: number, itemEid: number) => {
-          if (!transferItem(this.world, corpseEid, this.playerEid, itemEid)) {
-            gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
-            return;
-          }
-          const name = getItemData(itemEid)?.name ?? 'item';
-          gameLog.push(this.turnSystem.turnCount, 'system', `Took ${name}`);
-        },
-        onTakePart: (corpseEid: number, partEid: number) => {
-          const name = getPartData(partEid)?.name ?? 'part';
-          if (!takePartFromBody(this.world, partEid, corpseEid, this.playerEid)) {
-            gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
-            return;
-          }
-          // Part was detached to floor then picked up — remove floor sprite if any
-          this.removeEntitySprite(partEid);
-          gameLog.push(this.turnSystem.turnCount, 'system', `Took ${name}`);
-        },
-        onDropItem: (itemEid: number) => {
-          const x = Position.x[this.playerEid];
-          const y = Position.y[this.playerEid];
-          drop(this.world, this.playerEid, itemEid, x, y);
-          this.createItemSprite(itemEid);
-          gameLog.push(this.turnSystem.turnCount, 'system',
-            `Dropped ${getItemData(itemEid)?.name ?? 'item'}`);
-        },
-      },
-    });
-
-    // ── Context menu ──
-    this.contextMenuHandle = mount(ContextMenu, { target: document.body });
-
-    // ── Tooltip (shared) ──
-    this.tooltipHandle = mount(Tooltip, {
-      target: document.body,
-      props: { visible: false, x: 0, y: 0, data: null },
-    });
-
     // ── Right-click: suppress browser menu + open game context menu ──
     this.game.canvas.addEventListener('contextmenu', (e: MouseEvent) => {
       e.preventDefault();
-      contextMenuStore.close();
 
       // Convert screen coords → world → tile
       const rect = this.game.canvas.getBoundingClientRect();
-      const canvasX = (e.clientX - rect.left) * (this.game.canvas.width / rect.width);
-      const canvasY = (e.clientY - rect.top) * (this.game.canvas.height / rect.height);
+      const sourcePoint = mapClientPointToWarpSource(e.clientX, e.clientY, rect, GAME_VISOR_WARP_CONFIG);
+      const canvasX = (sourcePoint.x - rect.left) * (this.game.canvas.width / rect.width);
+      const canvasY = (sourcePoint.y - rect.top) * (this.game.canvas.height / rect.height);
       const worldPoint = this.cameras.main.getWorldPoint(canvasX, canvasY);
       const tileX = Math.floor(worldPoint.x / TILE_SIZE);
       const tileY = Math.floor(worldPoint.y / TILE_SIZE);
@@ -618,23 +521,9 @@ export class GameScene extends Scene {
       if (targets.length === 0) return;
 
       const targetEid = targets[0];
-      const isDead = hasComponent(this.world, targetEid, Dead);
-      const isPlayer = targetEid === this.playerEid;
-      const actions = [
-        {
-          label: isDead ? 'Inspect Body' : 'Inspect',
-          enabled: true,
-          callback: () => bodyStore.inspect(targetEid, isPlayer),
-        },
-      ];
-      if (isDead) {
-        actions.unshift({
-          label: 'Loot',
-          enabled: true,
-          callback: () => lootStore.loot(targetEid),
-        });
+      if (hasComponent(this.world, targetEid, Dead)) {
+        lootStore.loot(targetEid);
       }
-      contextMenuStore.show(e.clientX, e.clientY, targetEid, actions);
     });
 
     // ── Auto-attach from inventory double-click ──
@@ -736,26 +625,6 @@ export class GameScene extends Scene {
       unmount(this.sandboxPanelHandle as ReturnType<typeof mount>);
       this.sandboxPanelHandle = null;
     }
-    if (this.inventoryPanelHandle) {
-      unmount(this.inventoryPanelHandle as ReturnType<typeof mount>);
-      this.inventoryPanelHandle = null;
-    }
-    if (this.bodyPanelHandle) {
-      unmount(this.bodyPanelHandle as ReturnType<typeof mount>);
-      this.bodyPanelHandle = null;
-    }
-    if (this.lootPanelHandle) {
-      unmount(this.lootPanelHandle as ReturnType<typeof mount>);
-      this.lootPanelHandle = null;
-    }
-    if (this.contextMenuHandle) {
-      unmount(this.contextMenuHandle as ReturnType<typeof mount>);
-      this.contextMenuHandle = null;
-    }
-    if (this.tooltipHandle) {
-      unmount(this.tooltipHandle as ReturnType<typeof mount>);
-      this.tooltipHandle = null;
-    }
   }
 
   update(time: number, delta: number): void {
@@ -784,7 +653,7 @@ export class GameScene extends Scene {
 
     // ── Body panel toggle (B key) ──
     if (Phaser.Input.Keyboard.JustDown(this.bodyKey)) {
-      bodyStore.toggle(this.playerEid);
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Body panel not ported yet');
     }
 
     // ── Interact (E key) — tap/hold/selection ──
@@ -859,6 +728,18 @@ export class GameScene extends Scene {
     this.idleTime += delta;
     if (this.lightmapFilter) {
       this.lightmapFilter.time = time * 0.001; // ms → seconds
+    }
+    if (this.visorFilter) {
+      this.visorFilter.update(time);
+    }
+    if (this.visorStyleFilter) {
+      this.visorStyleFilter.update(time);
+    }
+    const pointer = this.input.activePointer;
+    if (pointer.active) {
+      const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      (pointer as any).worldX = worldPoint.x;
+      (pointer as any).worldY = worldPoint.y;
     }
     this.updateIdleAnimations();
 
@@ -1043,18 +924,46 @@ export class GameScene extends Scene {
 
   /**
    * E-key interaction state machine:
-   * - Tap E (<1s): pick up top item / loot top corpse
+   * - Tap E (<300ms): open the relevant inventory for the selected floor target
    * - Hold E (≥1s): pick up all loose items (skip corpses)
-   * - Hold E + W/S: selection mode — highlight item, release to act
+   * - Hold E + W/S: selection mode — move the highlighted floor target
    * - Movement cancels hold
    */
   private handleInteractInput(delta: number): void {
-    const items = this.hud.floorItems;
-    if (items.length === 0) {
+    // Only allow interaction during player input phase (or in sandbox mode)
+    if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) {
       this.interactHoldActive = false;
       this.interactSelectionMode = false;
       this.hud.floorSelectedIndex = -1;
+      this.hud.interactHoldProgress = 0;
       return;
+    }
+
+    const items = this.hud.floorItems;
+
+    // Fast path: if there's nothing on the floor, E only opens inventory on tap
+    if (items.length === 0) {
+      this.interactSelectionMode = false;
+      this.hud.floorSelectedIndex = -1;
+      this.hud.interactHoldProgress = 0;
+
+      if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
+        this.interactHoldStart = this.time.now;
+        this.interactHoldActive = true;
+      }
+      if (this.interactHoldActive && Phaser.Input.Keyboard.JustUp(this.interactKey)) {
+        const holdDuration = this.time.now - this.interactHoldStart;
+        if (holdDuration <= 300) inventoryStore.openPanel();
+        this.interactHoldActive = false;
+      } else if (!this.interactKey.isDown) {
+        this.interactHoldActive = false;
+      }
+      return;
+    }
+
+    if (this.hud.floorSelectedIndex < 0 || this.hud.floorSelectedIndex >= items.length) {
+      const preferredIndex = items.findIndex((thing) => thing.kind !== 'corpse');
+      this.hud.floorSelectedIndex = preferredIndex >= 0 ? preferredIndex : 0;
     }
 
     // Dismiss keys overlay on E press
@@ -1067,7 +976,7 @@ export class GameScene extends Scene {
       this.interactHoldStart = this.time.now;
       this.interactHoldActive = true;
       this.interactSelectionMode = false;
-      this.hud.floorSelectedIndex = -1;
+      this.hud.interactHoldProgress = 0;
     }
 
     // E is held
@@ -1082,7 +991,7 @@ export class GameScene extends Scene {
         // Horizontal movement cancels hold entirely
         this.interactHoldActive = false;
         this.interactSelectionMode = false;
-        this.hud.floorSelectedIndex = -1;
+        this.hud.interactHoldProgress = 0;
         return;
       }
 
@@ -1090,7 +999,7 @@ export class GameScene extends Scene {
       if (movingUp || movingDown) {
         if (!this.interactSelectionMode) {
           this.interactSelectionMode = true;
-          this.hud.floorSelectedIndex = 0;
+          this.hud.interactHoldProgress = 0; // Cancel animation
         } else {
           // Move selection — use JustDown for step-by-step
           if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W)) {
@@ -1101,31 +1010,175 @@ export class GameScene extends Scene {
           }
         }
       }
+
+      // Update hold progress if not in selection mode
+      if (!this.interactSelectionMode) {
+        const holdDuration = this.time.now - this.interactHoldStart;
+
+        this.hud.interactHoldProgress = Math.min(1, holdDuration / 1000);
+
+        if (holdDuration >= 1000) {
+          // Hold complete: loot all items + corpse inventories
+          this.pickUpAllFloorItems();
+          this.interactHoldActive = false;
+          this.hud.interactHoldProgress = 0;
+        }
+      }
     }
 
     // E released — determine action
     if (this.interactHoldActive && Phaser.Input.Keyboard.JustUp(this.interactKey)) {
       const holdDuration = this.time.now - this.interactHoldStart;
       this.interactHoldActive = false;
+      this.hud.interactHoldProgress = 0;
 
       if (this.interactSelectionMode) {
         // Act on selected item
         const idx = this.hud.floorSelectedIndex;
         if (idx >= 0 && idx < items.length) {
-          this.interactWithFloorThing(items[idx]);
+          this.interactWithSelectedFloorThing(items[idx]);
         }
         this.interactSelectionMode = false;
-        this.hud.floorSelectedIndex = -1;
-      } else if (holdDuration >= 1000) {
-        // Hold: pick up all loose items
-        this.pickUpAllFloorItems();
-      } else {
-        // Tap: interact with top item
-        if (items.length > 0) {
-          this.interactWithFloorThing(items[0]);
+      } else if (holdDuration <= 300) {
+        const idx = this.hud.floorSelectedIndex;
+        if (idx >= 0 && idx < items.length) {
+          this.interactWithSelectedFloorThing(items[idx]);
+        } else {
+          inventoryStore.openPanel();
         }
       }
+    } else if (!this.interactKey.isDown) {
+      // Ensure progress is reset if key is not down but we missed the JustUp event
+      this.interactHoldActive = false;
+      this.hud.interactHoldProgress = 0;
     }
+  }
+
+  private interactWithSelectedFloorThing(thing: { eid: number; kind: string }): void {
+    this.interactWithFloorThing(thing);
+  }
+
+  private handleInventoryDrop(itemEid: number): void {
+    if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+    if (!hasComponent(this.world, itemEid, HeldBy) || HeldBy.ownerEid[itemEid] !== this.playerEid) return;
+
+    const x = Position.x[this.playerEid];
+    const y = Position.y[this.playerEid];
+    const name = getItemData(itemEid)?.name ?? getPartData(itemEid)?.name ?? 'item';
+
+    drop(this.world, this.playerEid, itemEid, x, y);
+    this.eventQueue.push({
+      type: 'item_drop',
+      entityId: this.playerEid,
+      data: { itemEid },
+    });
+    gameLog.push(this.turnSystem.turnCount, 'system', `Dropped ${name}`);
+    inventoryStore.notify();
+    this.completeInventoryUiAction();
+  }
+
+  private handleInventoryPickUp(itemEid: number): void {
+    if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+    if (!hasComponent(this.world, itemEid, Position)) return;
+
+    const px = Position.x[this.playerEid];
+    const py = Position.y[this.playerEid];
+    if (Position.x[itemEid] !== px || Position.y[itemEid] !== py) return;
+
+    if (!canPickUp(this.playerEid, itemEid)) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+      return;
+    }
+
+    const name = getItemData(itemEid)?.name ?? getPartData(itemEid)?.name ?? 'item';
+    this.removeEntitySprite(itemEid);
+    pickUp(this.world, this.playerEid, itemEid);
+    gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${name}`);
+    inventoryStore.notify();
+    this.completeInventoryUiAction();
+  }
+
+  private handleInventoryCraft(match: RecipeMatch): void {
+    if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+
+    const outputEid = executeCraft(
+      this.world,
+      this.playerEid,
+      match,
+      this.eventQueue,
+      this.turnSystem.turnCount,
+    );
+
+    if (outputEid >= 0 && hasComponent(this.world, outputEid, Position)) {
+      this.eventQueue.push({
+        type: 'item_drop',
+        entityId: this.playerEid,
+        data: { itemEid: outputEid },
+      });
+    }
+
+    inventoryStore.clearSelection();
+    this.completeInventoryUiAction();
+  }
+
+  private handleInventoryCrudeCraft(itemEids: number[]): void {
+    if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+    if (itemEids.length < 2) return;
+
+    executeCrudeCraft(
+      this.world,
+      this.playerEid,
+      itemEids,
+      this.eventQueue,
+      this.turnSystem.turnCount,
+    );
+
+    inventoryStore.clearSelection();
+    this.completeInventoryUiAction();
+  }
+
+  private handleCorpseTakeItem(ownerEid: number, itemEid: number): void {
+    if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+
+    const success = transferItem(this.world, ownerEid, this.playerEid, itemEid);
+    if (!success) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+      return;
+    }
+
+    const name = getItemData(itemEid)?.name ?? 'item';
+    gameLog.push(this.turnSystem.turnCount, 'system', `Took ${name}`);
+    lootStore.notify();
+    inventoryStore.notify();
+    this.completeInventoryUiAction();
+  }
+
+  private handleCorpseTakePart(ownerEid: number, partEid: number): void {
+    if (this.turnSystem.phase !== TurnPhase.PLAYER_INPUT && !this.sandbox.active) return;
+
+    const success = takePartFromBody(this.world, partEid, ownerEid, this.playerEid);
+    if (!success) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+      return;
+    }
+
+    const name = getPartData(partEid)?.name ?? 'part';
+    gameLog.push(this.turnSystem.turnCount, 'system', `Took ${name}`);
+    lootStore.notify();
+    inventoryStore.notify();
+    bodyStore.notify();
+    this.completeInventoryUiAction();
+  }
+
+  private completeInventoryUiAction(): void {
+    if (this.sandbox.active) {
+      this.drainAndRefresh();
+      return;
+    }
+
+    this.turnSystem.deductEnergy(this.playerEid, 100);
+    this.turnSystem.advance(this.world);
+    this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
   }
 
   /** Act on a single floor thing — pick up item or loot corpse. */
@@ -1141,11 +1194,17 @@ export class GameScene extends Scene {
         gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
         return;
       }
-      const name = getItemData(thing.eid)?.name ?? 'item';
+      const name = getItemData(thing.eid)?.name ?? getPartData(thing.eid)?.name ?? 'item';
       this.removeEntitySprite(thing.eid);
       pickUp(this.world, this.playerEid, thing.eid);
       gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${name}`);
       inventoryStore.notify();
+      
+      if (!this.sandbox.active) {
+        this.turnSystem.deductEnergy(this.playerEid, 100);
+        this.turnSystem.advance(this.world);
+        this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
+      }
     }
   }
 
@@ -1155,61 +1214,67 @@ export class GameScene extends Scene {
       gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot interact — no manipulation');
       return;
     }
-    const items = this.hud.floorItems.filter(t => t.kind !== 'corpse');
+
     let count = 0;
-    for (const item of items) {
-      if (!canPickUp(this.playerEid, item.eid)) break;
+    let full = false;
+
+    // 1. Pick up all loose items/parts on the floor
+    const looseItems = this.hud.floorItems.filter(t => t.kind !== 'corpse');
+    for (const item of looseItems) {
+      if (!canPickUp(this.playerEid, item.eid)) {
+        full = true;
+        break;
+      }
       this.removeEntitySprite(item.eid);
       pickUp(this.world, this.playerEid, item.eid);
       count++;
     }
-    if (count > 0) {
-      gameLog.push(this.turnSystem.turnCount, 'system', `Picked up ${count} item${count > 1 ? 's' : ''}`);
-      inventoryStore.notify();
-    }
-  }
 
-  /** Handle E key: interact with corpses/items on the player's tile (legacy — now used as fallback). */
-  private handleInteract(): void {
-    if (lootStore.open) { lootStore.close(); return; }
-    if (hasComponent(this.world, this.playerEid, Body) && Body.manipulation[this.playerEid] === 0) {
-      gameLog.push(this.turnSystem.turnCount, 'system', 'Cannot interact — no manipulation');
-      return;
-    }
+    // 2. Loot all items and parts from corpses on the floor
+    if (!full) {
+      const corpses = this.hud.floorItems.filter(t => t.kind === 'corpse');
+      for (const corpse of corpses) {
+        const corpseItems = [...getItemsOf(corpse.eid)];
+        for (const itemEid of corpseItems) {
+          if (!transferItem(this.world, corpse.eid, this.playerEid, itemEid)) {
+            full = true;
+            break;
+          }
+          count++;
+        }
+        if (full) break;
 
-    const px = Position.x[this.playerEid];
-    const py = Position.y[this.playerEid];
-
-    // Find corpses on this tile
-    const corpses: number[] = [];
-    for (const [eid] of this.entitySprites) {
-      if (eid === this.playerEid) continue;
-      if (!hasComponent(this.world, eid, Dead) || !hasComponent(this.world, eid, Body)) continue;
-      if (Position.x[eid] === px && Position.y[eid] === py) {
-        corpses.push(eid);
+        const parts = [...getPartsOf(corpse.eid)];
+        for (const partEid of parts) {
+          if (!takePartFromBody(this.world, partEid, corpse.eid, this.playerEid)) {
+            full = true;
+            break;
+          }
+          count++;
+        }
+        if (full) break;
       }
     }
 
-    if (corpses.length === 1) {
-      // Single corpse — open loot directly
-      lootStore.loot(corpses[0]);
-    } else if (corpses.length > 1) {
-      // Multiple — show selection menu at screen center
-      const cx = this.game.canvas.width / 2;
-      const cy = this.game.canvas.height / 2;
-      const actions = corpses.map(eid => {
-        const speciesId = this.entitySpecies.get(eid);
-        const species = speciesId ? getRegistry().species.get(speciesId) : undefined;
-        const name = species?.name ?? `entity #${eid}`;
-        return {
-          label: `${name} (dead)`,
-          enabled: true,
-          callback: () => lootStore.loot(eid),
-        };
-      });
-      contextMenuStore.show(cx, cy, -1, actions);
+    if (full && count === 0) {
+      gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
     }
-    // If no corpses, could handle items — but auto-pickup covers that
+
+    if (count > 0) {
+      gameLog.push(this.turnSystem.turnCount, 'system', `Looted ${count} item${count > 1 ? 's' : ''}`);
+      if (full) {
+        gameLog.push(this.turnSystem.turnCount, 'system', 'Inventory full!');
+      }
+      inventoryStore.notify();
+      lootStore.notify();
+      bodyStore.notify();
+
+      if (!this.sandbox.active) {
+        this.turnSystem.deductEnergy(this.playerEid, 100);
+        this.turnSystem.advance(this.world);
+        this.drainAndRefresh(() => this.turnSystem.onPlayerAnimationComplete(this.world));
+      }
+    }
   }
 
   private handlePlayerInput(): void {
@@ -1223,7 +1288,7 @@ export class GameScene extends Scene {
       return;
     }
 
-    if (inventoryStore.open || bodyStore.open || lootStore.open) return; // UI panel open — don't move
+    if (inventoryStore.open || lootStore.open) return; // UI panel open — don't move
 
     let dx = 0;
     let dy = 0;
@@ -1906,7 +1971,8 @@ export class GameScene extends Scene {
     this.eventQueue.registerHandler('item_drop', (event: VisualEvent, onComplete: () => void) => {
       const itemEid = event.data.itemEid as number;
       if (hasComponent(this.world, itemEid, Position) && !this.entitySprites.has(itemEid)) {
-        this.createItemSprite(itemEid);
+        const textureKey = hasComponent(this.world, itemEid, PartIdentity) ? TEX.SEVERED_PART : TEX.ITEM;
+        this.createEntitySprite(itemEid, undefined, textureKey, this.objectContainer);
       }
       onComplete();
     });

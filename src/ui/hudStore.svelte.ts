@@ -30,6 +30,7 @@ class HudStore {
   // Floor items
   floorItems = $state<FloorThing[]>([]);
   floorSelectedIndex = $state(-1);
+  interactHoldProgress = $state(0);
 }
 
 export const hudStore = new HudStore();

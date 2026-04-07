@@ -7,12 +7,52 @@
   <style>
     /* Game-standard UI scaling: proportional to screen height.
        1.8vh ≈ 19px at 1080p, ≈ 35px at 4K. */
-    html { font-size: 1.8vh; }
+    html { font-size: 2.25vh; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; overflow: hidden; }
+    html, body { width: 100%; height: 100%; }
+    body {
+      background: #000;
+      overflow: hidden;
+    }
+
+    #game-stack {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      overflow: hidden;
+    }
+
+    #game-root,
+    #ui-root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    #game-root {
+      z-index: 1;
+    }
+
+    #ui-root {
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    #game-root canvas,
+    #ui-root canvas {
+      display: block;
+    }
+
+    #ui-root canvas {
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
+  <div id="game-stack">
+    <div id="game-root"></div>
+    <div id="ui-root"></div>
+  </div>
   <script>
     window.onerror = function(msg, src, line, col, err) {
       var d = document.createElement('pre');

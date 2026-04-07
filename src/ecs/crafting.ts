@@ -13,6 +13,7 @@ import {
   getItemData, getItemDefIndex, getItemsOf,
   recalcInventory, drop, spawnItemInInventory, spawnItemOnFloor,
   removeItemFromOwner,
+  trackInventoryEntity,
 } from './inventory';
 import type { RecipeData, ItemData } from '../types';
 import { ITEM_SIZE_VOLUME } from '../types';
@@ -227,7 +228,7 @@ export function executeCrudeCraft(
 
   HeldBy.ownerEid[outputEid] = creatureEid;
 
-  recalcInventory(creatureEid);
+  trackInventoryEntity(creatureEid, outputEid);
 
   gameLog.push(turnCount, 'system', `Crafted: ${composite.name}`);
 

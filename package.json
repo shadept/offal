@@ -11,7 +11,8 @@
   "dependencies": {
     "bitecs": "^0.4.0",
     "json5": "^2.2.3",
-    "phaser": "^4.0.0-rc.7"
+    "phaser": "^4.0.0-rc.7",
+    "phaser4-rex-plugins": "^4.0.5"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",

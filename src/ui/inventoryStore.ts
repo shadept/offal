@@ -8,7 +8,7 @@ import {
   getItemsOf, getItemData, getItemVolume, getCreatureCapacity,
   getCreatureUsedVolume, findItemsAtPosition,
 } from '../ecs/inventory';
-import { getPartData } from '../ecs/body';
+import { getPartData, findPartsAtPosition } from '../ecs/body';
 import { crudeCompositeData } from '../ecs/crafting';
 import type { ItemData, PartRole } from '../types';
 import { ITEM_SIZE_VOLUME } from '../types';
@@ -31,6 +31,8 @@ export interface FloorItemInfo {
   name: string;
   material: string;
   size: string;
+  isPart: boolean;
+  partRole?: PartRole;
 }
 
 export class InventoryStore {
@@ -152,17 +154,35 @@ export class InventoryStore {
   }
 
   /** Get items on the floor at a position. */
-  getFloorItems(x: number, y: number, maxEid: number): FloorItemInfo[] {
+  getFloorItems(x: number, y: number, maxEid = 10000): FloorItemInfo[] {
     const eids = findItemsAtPosition(x, y, maxEid);
-    return eids.map(eid => {
+    const items = eids.map(eid => {
       const data = getItemData(eid);
       return {
         eid,
         name: data?.name ?? 'Unknown',
         material: data?.material ?? '?',
         size: data?.size ?? 'medium',
+        isPart: false,
       };
     });
+
+    if (!this._world) return items;
+
+    const partEids = findPartsAtPosition(this._world, x, y, maxEid);
+    const parts = partEids.map(eid => {
+      const partDef = getPartData(eid);
+      return {
+        eid,
+        name: partDef?.name ?? 'Severed Part',
+        material: partDef?.material ?? '?',
+        size: 'medium',
+        isPart: true,
+        partRole: partDef?.type as PartRole | undefined,
+      };
+    });
+
+    return [...items, ...parts];
   }
 
   onChange(fn: () => void): void {
